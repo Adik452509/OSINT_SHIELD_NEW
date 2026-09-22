@@ -1,0 +1,174 @@
+# OSINT classification rubric.
+# Transcribed verbatim from docs/reference/osint_keywords.pdf (3 pages).
+#
+# This is the rubric the annotator used to produce the labels in
+# data/raw/gold_dataset.csv. It is used THREE ways in this project, all of
+# them system-side or as measured ablations - never silently inside the
+# fine-tuning objective:
+#
+#   1. keyword FUSION features appended to [CLS] (ablation arm, see
+#      configs/base.yaml -> keywords.mode). Computed over the FULL
+#      untruncated document, which is the point: at max_len=512 only 17.3%
+#      of bodied articles are seen in full, so these carry signal from the
+#      truncated tail that the encoder physically cannot reach.
+#   2. propaganda CANDIDATE MINING - the only tractable route from 7
+#      labelled positives to a real training set.
+#   3. ingestion query terms and LLM evidence-extraction constraints.
+#
+# Measured on 1,053 deduped articles (5-fold CV, TF-IDF+LogReg):
+#   severity  : keywords ALONE score F1(High)=0.685 vs 0.686 for a
+#               50k-feature TF-IDF model. Severity is genuinely a keyword task.
+#   narrative : keywords alone 0.374 vs TF-IDF 0.473. Too generic for the
+#               rare classes (Investigation precision 0.103).
+
+version: 1
+source: docs/reference/osint_keywords.pdf
+
+severity:
+  High:
+    - airstrikes
+    - killed
+    - casualties
+    - attack
+    - explosion
+    - missile strike
+    - troops deployed
+    - terrorist attack
+    - military offensive
+    - ceasefire violated
+    - IRGC claimed
+    - destroyed
+    - wounded
+    - deaths reported
+    - siege
+    - artillery
+    - bombing
+  Low:
+    - mock drill
+    - policy review
+    - budget allocation
+    - state visit
+    - parliamentary debate
+    - exercise
+    - historical analysis
+    - appointment
+    - trade agreement
+    - sanctions discussed
+    - preparedness
+    - training
+    - annual report
+    - bilateral meeting
+
+propaganda:
+  glorification:
+    - brave sons
+    - shield in crisis
+    - gave their lives
+    - martyred
+    - proud sacrifice
+    - glorious victory
+    - national hero
+  justification:
+    - appeasement politics
+    - vote bank
+    - foreign sabotage
+    - love jihad
+    - stall India's programs
+    - loaded terms
+    - biased framing
+  victimhood:
+    - wrongly imprisoned
+    - partisan framing
+    - targeted
+    - oppressed
+    - silenced
+    - unjust sentence
+    - political prisoner
+  recruitment:
+    - join the cause
+    - fight for
+    - answer the call
+    - rise up
+    - defend your faith
+    - volunteers needed
+
+narrative:
+  Security:
+    - airstrike
+    - military exercise
+    - ceasefire
+    - DRDO
+    - naval fleet
+    - armed forces
+    - border patrol
+    - security threat
+    - deployment
+    - missile test
+    - IAF
+    - defence ministry
+    - operation
+    - counter-terrorism
+  Political:
+    - bilateral talks
+    - diplomatic
+    - foreign minister
+    - state visit
+    - sanctions
+    - MEA
+    - parliament
+    - foreign policy
+    - ambassador
+    - Indo-US
+    - relations
+    - agreement
+    - summit
+  Civilian:
+    - civilians
+    - humanitarian
+    - relief operations
+    - displaced
+    - injured civilians
+    - aid
+    - rescue
+    - evacuation
+    - flood risk
+    - earthquake relief
+    - civilian casualties
+  Investigation:
+    - FIR
+    - arrested
+    - NIA
+    - court verdict
+    - convicted
+    - sentenced
+    - terrorism case
+    - law enforcement
+    - evidence
+    - investigation
+    - chargesheet
+    - CAPF
+  Other:
+    - film release
+    - UPSC preparation
+    - tourism
+    - exam
+    - entertainment
+    - Galwan Valley film
+    - civil service
+    - cultural
+  # Radicalization has no keyword list in the PDF and zero examples in the
+  # corpus. Declared in taxonomy.yaml, deliberately absent here.
+
+# Terms measured as low-precision on this corpus. Excluded when
+# keywords.exclude_low_precision is true (default for propaganda MINING,
+# false for fusion features so the ablation stays faithful to the rubric).
+low_precision:
+  # fires 48x across the corpus, almost all "targeted strike/killing" -
+  # accounts for nearly all victimhood hits and only 1 true positive
+  - targeted
+  # generic verb phrase, not a recruitment signal in news prose
+  - fight for
+  # appears in Security articles constantly ("evidence of buildup")
+  - evidence
+  # ditto ("Operation Sindoor", "operational readiness")
+  - operation

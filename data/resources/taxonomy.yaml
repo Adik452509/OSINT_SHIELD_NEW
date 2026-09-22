@@ -1,0 +1,60 @@
+# Label space for the OSINT classifier.
+#
+# IMPORTANT - the integer ids in gold_dataset.csv's `narrative_label` column
+# are NON-CONTIGUOUS: 0=Security, 1=Civilian, 2=Political, 4=Investigation,
+# 5=Other. Id 3 (Radicalization) is unused. We ignore that column entirely
+# and build contiguous ids from `narrative` strings via this file, so the
+# classification heads never carry a permanently-dead logit.
+
+version: 1
+
+narrative:
+  # trained classes, contiguous ids 0..4, ordered by corpus frequency
+  classes:
+    - {id: 0, name: Security,      n: 824}
+    - {id: 1, name: Political,     n: 155}
+    - {id: 2, name: Civilian,      n: 41}
+    - {id: 3, name: Other,         n: 26}
+    - {id: 4, name: Investigation, n: 18}
+  # declared in the plan PDF but absent from the corpus AND from the keyword
+  # rubric. Not trained. Kept here so the taxonomy is complete and so a
+  # future retrain can add it without a schema change.
+  declared_but_absent:
+    - Radicalization
+  # 6-class macro-F1 is dominated by classes with <30 examples. The collapsed
+  # view is the more meaningful headline number (plan PDF S5.3).
+  collapse_3:
+    Security: Security
+    Political: Political
+    Civilian: Other
+    Investigation: Other
+    Other: Other
+    Radicalization: Other
+
+severity:
+  classes:
+    - {id: 0, name: Low,  n: 823}
+    - {id: 1, name: High, n: 241}
+  positive_class: High   # F1 is reported on this class specifically
+
+propaganda:
+  # RETAINED AS A TRAINED TASK by explicit decision - see docs/DECISIONS.md D3.
+  # 7 positives corpus-wide. A TF-IDF baseline scores 0.000 positive-class F1.
+  # The head is trained but its score is DIAGNOSTIC ONLY and must always be
+  # reported alongside prop_n_pos_test.
+  binary:
+    - {id: 0, name: "No",  n: 1057}
+    - {id: 1, name: "Yes", n: 7}
+  subtypes:
+    - {name: glorification, n: 2,  trainable: false}
+    - {name: justification, n: 4,  trainable: false}
+    - {name: victimhood,    n: 1,  trainable: false}
+    # zero positives corpus-wide - a head for this cannot exist
+    - {name: recruitment,   n: 0,  trainable: false}
+
+language:
+  # 97.0% English. Multilingual capability must come from the base model's
+  # pretrained cross-lingual representations, not from fine-tuning:
+  # 32 examples teach a model nothing about two languages.
+  counts: {English: 1032, Hindi: 29, Kannada: 3}
+  verifiable: false   # never report an Indic metric as measured

@@ -1,0 +1,116 @@
+# Base training/eval configuration. Model-specific files override these.
+# Tuned for the PRIMARY target: RTX 3050 Laptop 6 GB / Ryzen 5 7235HS / 11.7 GB RAM.
+
+seed: 42
+seeds: [42, 1337, 2024]      # small-data fine-tuning is seed-sensitive; report mean and std
+
+data:
+  gold_csv: data/raw/gold_dataset.csv
+  # "body_only" (571 rows) is PRIMARY. "all" (1053) is run as the confound
+  # measurement, not as the headline number. See docs/DECISIONS.md D2.
+  mode: body_only            # body_only | all
+  headline_col: clean_headline
+  body_col: clean_text
+  # Prepended to headline-only rows in mode=all so the model can at least
+  # distinguish the two regimes rather than silently learning "short -> Low".
+  no_body_marker: "[NO_BODY]"
+
+dedupe:
+  # Exact normalised-headline dedupe removes 11 rows but leaves 28 near-dup
+  # pairs / 20 redundant rows leaking across folds. We group instead of drop,
+  # so the rare classes keep every example they have.
+  method: fuzzy_group
+  similarity: 0.85           # char_wb 3-5gram TF-IDF cosine on headline
+  strip_source_suffix: true  # google news appends " - Publisher"
+  action: group              # group | drop
+
+split:
+  # 5-fold stratified GROUP CV. Stratify on narrative (the scarcer target);
+  # severity stratifies acceptably as a side effect.
+  strategy: stratified_group_kfold
+  n_folds: 5
+  stratify_on: narrative
+  group_on: dupe_group
+  # The 7 propaganda positives are spread round-robin across folds so no test
+  # fold has zero positives. Expected ~1.4 per fold - diagnostic only.
+  balance_rare_positives: [propaganda]
+  # Held out and untouched until the very end. NOTE: the plan PDF asks for CV
+  # over all 1,064 AND an untouched test.csv - those contradict, since
+  # test.csv is a subset. See docs/DECISIONS.md D1.
+  final_holdout: data/raw/test.csv
+
+tokenizer:
+  max_length: 512            # ablate 256 / 512 / 1024
+  padding: max_length
+  truncation: true
+
+model:
+  name: jhu-clsp/mmBERT-small
+  pooling: cls               # cls | mean
+  dropout: 0.1
+  attn_implementation: eager # flash-attn is CUDA-only and brittle; eager is portable
+
+heads:
+  narrative:  {enabled: true,  n_classes: 5, loss_weight: 1.0, class_weight: balanced}
+  severity:   {enabled: true,  n_classes: 2, loss_weight: 1.0, class_weight: balanced}
+  # RETAINED by explicit decision (docs/DECISIONS.md D3). Down-weighted, and
+  # the positive class weight is CAPPED - 'balanced' on 7 positives would hand
+  # the positive class a ~150x multiplier and the model would predict Yes for
+  # everything.
+  propaganda: {enabled: true,  n_classes: 2, loss_weight: 0.3, class_weight: balanced,
+               class_weight_cap: 10.0, report_as: diagnostic}
+
+keywords:
+  # The user's directive: the rubric should help the model classify.
+  # Measured as an ablation, not assumed. Features are computed over the FULL
+  # untruncated document - that is the whole point, since max_len=512 sees
+  # only 17.3% of bodied articles in full.
+  enabled: true
+  resource: data/resources/keywords.yaml
+  mode: group_counts         # off | group_counts (11-dim) | per_keyword (~130-dim) | markers
+  transform: log1p
+  exclude_low_precision: false   # keep the rubric faithful for fusion
+  fuse_at: cls               # concatenated to the pooled vector before the heads
+
+training:
+  epochs: 5
+  patience: 2                # early stop on inner-val narrative macro-F1
+  inner_val_size: 0.12       # carved from the training fold; the test fold stays untouched
+  batch_size: 8
+  grad_accum: 2              # effective batch 16
+  lr: 2.0e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.1
+  scheduler: linear
+  max_grad_norm: 1.0
+  # 6 GB VRAM: AMP is what makes batch 8 @ 512 fit for xlm-roberta-base.
+  amp: true
+  amp_dtype: fp16
+  gradient_checkpointing: false   # turn on for max_length >= 1024
+  num_workers: 0             # Windows spawn overhead; 4 physical cores
+
+evaluation:
+  primary_metric: narrative_macro_f1
+  report:
+    - narrative_macro_f1          # 5-class
+    - narrative_collapsed_macro_f1 # 3-class - the meaningful headline number
+    - severity_f1_high
+    - propaganda_f1_pos           # diagnostic only, always with prop_n_pos_test
+  confusion_matrix: true
+  # Every severity metric is also broken out by has_body. A classifier fed
+  # ONLY the has_body flag scores F1(High)=0.478 - the confound is real and
+  # must stay visible.
+  stratify_by: [has_body]
+  # Plan PDF S5.2: inter-annotator agreement is 74.3% narrative / 79.9%
+  # severity. Anything dramatically above this is a leakage alarm, not success.
+  leakage_alarm:
+    narrative_accuracy_above: 0.92
+
+baselines:
+  - majority
+  - tfidf_logreg
+  - keyword_rules      # 31 severity terms alone score F1(High)=0.685
+
+paths:
+  runs_dir: runs
+  cache_dir: .cache

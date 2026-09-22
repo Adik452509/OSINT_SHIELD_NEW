@@ -1,0 +1,14 @@
+# Primary candidate. Fewest trainable non-embedding parameters (42 M body),
+# which is what matters on a ~500-row training fold. 8,192 context removes
+# truncation entirely - relevant here because the median BODIED article is
+# 859 tokens and only 17.3% fit inside 512.
+extends: base.yaml
+
+model:
+  name: jhu-clsp/mmBERT-small
+  pooling: cls
+
+# Fits comfortably on 6 GB at 512 tokens.
+training:
+  batch_size: 8
+  grad_accum: 2

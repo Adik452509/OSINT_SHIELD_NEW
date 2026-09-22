@@ -1,0 +1,59 @@
+# ---- secrets ----
+.env
+*.session
+*.session-journal
+credentials.json
+token.json
+
+# ---- data (never commit the corpus) ----
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/external/*
+!data/external/.gitkeep
+# data/resources/ IS committed - small, versioned rubric files
+
+# ---- experiment output ----
+runs/*
+!runs/.gitkeep
+results/
+*.ckpt
+*.safetensors
+*.bin
+wandb/
+mlruns/
+
+# ---- model cache ----
+.cache/
+hf_cache/
+
+# ---- python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# ---- node / dashboard ----
+node_modules/
+dashboard/dist/
+dashboard/.vite/
+
+# ---- os / editor ----
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp

@@ -1,0 +1,20 @@
+# The heavily-cited comparison. Keep it in the write-up regardless of which
+# wins - it is the model a reviewer expects to see, and a like-for-like number
+# against it makes the case for whichever model is finally chosen.
+#
+# 278 M total / 86 M body. 192 M of those parameters sit in a 250 K-token
+# embedding matrix this corpus barely exercises. Context is capped at 512.
+extends: base.yaml
+
+model:
+  name: FacebookAI/xlm-roberta-base
+  pooling: cls
+
+tokenizer:
+  max_length: 512      # hard ceiling for this model
+
+# Tighter on 6 GB VRAM than mmBERT-small. Same effective batch of 16.
+training:
+  batch_size: 4
+  grad_accum: 4
+  amp: true
