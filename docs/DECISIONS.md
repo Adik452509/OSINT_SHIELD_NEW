@@ -82,6 +82,26 @@ other three sub-types have 2 / 4 / 1. No sub-type head is trainable today.
 3. **LLM zero-shot at pipeline stage 5** using the documented rubric criteria — a working detector
    today while the labels are grown.
 
+### Amendment, 2026-09-25 (M3) — the rubric is the *only* propaganda signal
+
+Measured across every mode and protocol:
+
+| Model | propaganda F1(positive) |
+|---|---|
+| majority | 0.000 |
+| `tfidf_logreg` (50k features) | **0.000** |
+| `keyword_logreg` | 0.045 – 0.079 |
+| **`keyword_rules`** | **0.100 – 0.150** |
+
+Every *learned* method scores exactly zero, at every data size. The rubric rules are the only
+thing that detects propaganda at all — and they do it with **no training data**, which means the
+score does not degrade on unseen articles the way a 5-example classifier would.
+
+0.15 is still a bad classifier and must not be reported as a result. But it vindicates keeping the
+task alive, and it fixes the near-term design: **propaganda detection ships as rules + LLM
+zero-shot**, with the trained head carried alongside as a diagnostic until mining and transfer
+grow the positives. The keyword path is the product; the head is the experiment.
+
 ---
 
 ## D4 · Keywords are a model input, measured as an ablation — 2026-09-22
@@ -127,6 +147,30 @@ is the testable claim, and `off` is in the ablation set so it can fail.
 the labels. Keyword features therefore partly predict *the annotation process*, not only the world.
 Legitimate — reproducing the annotation is the task — but it must be stated, and it means
 keyword-fusion gains will not fully transfer to live unlabelled news.
+
+### Amendment, 2026-09-25 (M3) — apply the rubric, don't learn from it
+
+M3 measured a pure **rule** baseline (argmax over keyword-group counts, *no learning at all*)
+against a **learned** one (logistic regression over the same counts). The rule wins almost
+everywhere, on `body_only` / clean folds:
+
+| Task | `keyword_rules` | `keyword_logreg` | `tfidf_logreg` |
+|---|---|---|---|
+| narrative 5-class | **0.443** | 0.383 | 0.466 |
+| narrative 3-class | **0.517** | 0.474 | 0.604 |
+| severity F1(High) | 0.667 | **0.675** | 0.687 |
+| propaganda F1(pos) | **0.118** | 0.063 | **0.000** |
+
+Two consequences:
+
+1. **Rule beats learned on narrative by ~6 points.** Eleven group-count features are too few for
+   `class_weight="balanced"` logistic regression not to over-correct on a 77%-majority problem.
+   The argmax rule encodes the inductive bias that actually generated the labels. So the fusion
+   arm should hand the encoder the **raw counts** and let attention weigh them — not a
+   pre-learned linear projection, and not a hard rule prediction.
+2. **`keyword_rules` at 0.443 is within 0.023 of a 50,000-feature TF-IDF model** on 5-class
+   narrative, using 61 terms and zero training. That is a strong argument that the rubric carries
+   most of the available narrative signal, and it sets a floor the encoder must clear comfortably.
 
 ---
 

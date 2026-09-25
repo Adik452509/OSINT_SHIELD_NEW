@@ -5,6 +5,92 @@ Running log. Newest first. See [DECISIONS.md](DECISIONS.md) for the reasoning be
 
 ---
 
+## 2026-09-25 — M3 · Baselines ✅
+
+### Done
+
+`src/osint_shield/evaluation/{metrics,baselines}.py`, `scripts/03_baselines.py`,
+`runs/baselines/baseline_results.json`. Five baselines × four tasks × two data
+modes × two fold protocols.
+
+**Verified** `pytest` → **90 passed**. Every Phase 1 reference reproduced within
+tolerance: `body_only` leaky narrative 5-class **0.473 exactly**, 3-class **0.627
+exactly**, severity 0.692 (vs 0.686), propaganda 0.000.
+
+### The bar for M5 — `body_only`, clean folds (n=476)
+
+| Task | majority | keyword_rules | keyword_logreg | **tfidf_logreg** |
+|---|---|---|---|---|
+| narrative 5-class | 0.172 | 0.443 | 0.383 | **0.466 ± 0.015** |
+| narrative 3-class | 0.287 | 0.517 | 0.474 | **0.604 ± 0.038** |
+| severity F1(High) | 0.000 | 0.667 | 0.675 | **0.687 ± 0.072** |
+| propaganda F1(pos) | 0.000 | **0.118** | 0.063 | 0.000 |
+
+### Three findings
+
+**1. Rules beat learning on the rubric.** `keyword_rules` (argmax over group
+counts, zero training) beats `keyword_logreg` by ~6 points on narrative, and lands
+within 0.023 of a 50,000-feature TF-IDF model using 61 terms. → D4 amended: fuse
+**raw counts** into the encoder, not a pre-learned projection.
+
+**2. The rubric is the only propaganda signal that exists.** Every learned method
+scores exactly 0.000; `keyword_rules` scores 0.100–0.150 with no training data.
+→ D3 amended: propaganda ships as rules + LLM zero-shot; the trained head stays as
+a diagnostic.
+
+**3. The `has_body` confound, quantified in model terms.** In `all` mode,
+`tfidf_logreg` severity F1(High) is **0.657 on bodied articles and 0.327 on
+headline-only ones** — the same model, half the performance, because the
+headline-only regime is 9.5% High against 34.0%. The `has_body`-only control
+(zero text) scores **0.476**, confirming the Phase 1 measurement of 0.478.
+
+### Leakage cost — `tfidf_logreg`, leaky minus clean
+
+| mode | narrative 5 | narrative 3 | severity |
+|---|---|---|---|
+| `body_only` | −0.007 | −0.023 | −0.005 |
+| `all` | **−0.051** | −0.037 | −0.015 |
+
+Duplicate leakage was inflating `all`-mode narrative macro-F1 by **5 points**. The
+headline-only half of the corpus is where the syndicated copies live, so it carries
+most of the leak. This is a reportable result, not just hygiene.
+
+### Error structure — pooled 3-class confusion, `body_only` clean
+
+| truth ↓ / pred → | Other | Political | Security |
+|---|---|---|---|
+| Other | 14 | 5 | 26 |
+| Political | 4 | 42 | 25 |
+| Security | 13 | 28 | 319 |
+
+Per-class F1: Security **0.874**, Political **0.575**, Other **0.368**.
+The Security↔Political boundary is the main error mode in both directions (28 and
+25) — exactly as the plan predicted. `Other` is largely swallowed by Security (26
+of 45), consistent with it being a residual bucket rather than a class.
+
+No leakage alarm fired under either protocol.
+
+### Consequence for M5 targets
+
+The plan's projections were written against an assumed TF-IDF bar. Measured against
+the real clean bar, the gaps the encoder must close are:
+
+| Task | clean bar | plan target | gap |
+|---|---|---|---|
+| narrative 5-class | 0.466 | 0.50 – 0.62 | +0.03 to +0.15 |
+| narrative 3-class | 0.604 | 0.78 – 0.85 | **+0.18 to +0.25** |
+| severity F1(High) | 0.687 | 0.82 – 0.88 | **+0.13 to +0.19** |
+
+The 3-class and severity targets look optimistic. Treat them as aspirations, not
+expectations, and report what is measured.
+
+### Next
+
+**M4 · Multi-task model + training loop** — shared encoder, three heads, one fold
+end to end on the GPU, with the 40-row overfit check as the gradient-path proof.
+
+---
+
 ## 2026-09-25 — M2 · Data layer ✅
 
 ### Done
