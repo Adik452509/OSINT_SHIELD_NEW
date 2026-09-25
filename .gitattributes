@@ -1,0 +1,33 @@
+# Line endings are normalised to LF inside the repository, regardless of the
+# platform that wrote the file. Without this, files generated on Windows get
+# committed with CRLF and every diff is full of phantom whole-file changes.
+* text=auto eol=lf
+
+# Source and config - always LF
+*.py      text eol=lf
+*.md      text eol=lf
+*.yaml    text eol=lf
+*.yml     text eol=lf
+*.json    text eol=lf
+*.toml    text eol=lf
+*.cfg     text eol=lf
+*.txt     text eol=lf
+*.csv     text eol=lf
+.gitignore      text eol=lf
+.gitattributes  text eol=lf
+.env.example    text eol=lf
+
+# Windows-native scripts need CRLF to run reliably
+*.ps1     text eol=crlf
+*.bat     text eol=crlf
+*.cmd     text eol=crlf
+
+# Never touched, never diffed
+*.pdf         binary
+*.zip         binary
+*.png         binary
+*.jpg         binary
+*.bin         binary
+*.safetensors binary
+*.parquet     binary
+*.ckpt        binary

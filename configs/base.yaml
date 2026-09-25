@@ -16,13 +16,23 @@ data:
   no_body_marker: "[NO_BODY]"
 
 dedupe:
-  # Exact normalised-headline dedupe removes 11 rows but leaves 28 near-dup
-  # pairs / 20 redundant rows leaking across folds. We group instead of drop,
-  # so the rare classes keep every example they have.
-  method: fuzzy_group
+  # Exact and near duplicates get different treatment, because they are
+  # different problems:
+  #   exact  - the same article twice. Carries no extra information; keep one.
+  #            11 rows corpus-wide.
+  #   near   - a syndicated rewrite (0.85 <= sim < 1.0). Genuinely different
+  #            text, so both are kept - but they must land in the SAME fold or
+  #            the model is tested on something it trained on. 28 pairs / 20
+  #            rows still leak after exact dedupe alone.
+  # Grouping rather than dropping the near-dupes matters because the rare
+  # classes cannot spare a single example.
   similarity: 0.85           # char_wb 3-5gram TF-IDF cosine on headline
   strip_source_suffix: true  # google news appends " - Publisher"
-  action: group              # group | drop
+  drop_exact: true
+  group_near: true
+  # A CV row whose duplicate group also contains a test.csv row would leak
+  # into the final hold-out. Drop it from the CV pool; test.csv stays intact.
+  exclude_holdout_leaks: true
 
 split:
   # 5-fold stratified GROUP CV. Stratify on narrative (the scarcer target);

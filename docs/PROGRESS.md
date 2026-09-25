@@ -5,6 +5,82 @@ Running log. Newest first. See [DECISIONS.md](DECISIONS.md) for the reasoning be
 
 ---
 
+## 2026-09-25 — M2 · Data layer ✅
+
+### Done
+
+- `src/osint_shield/data/loaders.py` — corpus → normalised frame. Labels mapped
+  from the `narrative` **string** via `taxonomy.yaml`, never the corpus's own
+  non-contiguous `narrative_label` column. `has_body` materialised. Original split
+  membership recovered so `test.csv` can be held out exactly.
+- `src/osint_shield/data/dedupe.py` — normalisation, exact-duplicate flagging, and
+  char 3–5gram TF-IDF cosine clustering via connected components.
+- `src/osint_shield/data/splits.py` — hold-out resolution with leak removal, and
+  `StratifiedGroupKFold` fold assignment.
+- `scripts/02_build_folds.py` — the runnable pipeline with regression checks.
+- `docs/DATA_REPORT.md`, `data/processed/folds_{body_only,all}.csv`,
+  `holdout_{body_only,all}.csv`.
+
+**Verified** `pytest` → **66 passed**. `M2 PASSED`.
+
+### Results
+
+| | `body_only` | `all` |
+|---|---|---|
+| CV pool | **476** | **891** |
+| Hold-out (`test.csv`) | 94 | 159 |
+| Fold size spread | 1 row | 2 rows |
+| Propaganda positives in pool | 5 of 7 | 5 of 7 |
+| Duplicate groups spanning folds | **0** | **0** |
+
+- Exact duplicates: **11**. Near-dup clusters at 0.85: **22 multi-row groups, 26
+  redundant rows, largest 6**.
+- **12 clusters spanned two original splits** — the leakage this milestone exists
+  to close.
+- Hold-out is **159**, not 160: one `test.csv` row was an exact duplicate.
+- **3 rows dropped** from the CV pool because a near-duplicate sits in the
+  hold-out (1 of them bodied). Reconciliation is exact: 476 + 94 + 1 = 571.
+- Rare classes per test fold in `body_only`: **Investigation 2–3, Other 2–3,
+  Civilian 4–5**. One error moves such a class's recall by 33–50 points — this is
+  why the collapsed 3-class figure is the honest headline.
+
+### Notes
+
+- **Largest cluster is the "Pralay missile" story, 6 articles.** Several of its
+  pairs score *below* 0.85 (0.752–0.913) and only group by chaining through pairs
+  that clear the threshold. Without grouping, six near-identical articles would
+  have scattered across folds — the single largest leak in the corpus.
+- **Known benign false positive:** "29th Meeting of the Working Mechanism…" groups
+  with "30th Meeting of the…" at 0.98. Different events, near-identical
+  boilerplate headlines. Grouping is still correct — a model trained on one and
+  tested on the other succeeds by pattern-matching, not understanding.
+- **TF-IDF is corpus-relative.** `similarity_groups` must receive the whole corpus
+  in one call; similarity values are not comparable across calls of different
+  sizes. M10's streaming ingestion will need incremental matching against stored
+  vectors, not batch re-clustering.
+- Bug found and fixed: `normalise_headline` stripped punctuation before collapsing
+  whitespace, so tabs and newlines were deleted rather than converted to spaces,
+  welding adjacent words. No effect on this corpus (0 affected headlines) but it
+  would bite on live RSS.
+
+### Consequence for M3
+
+The measured baselines (narrative macro-F1 0.473, severity F1(High) 0.686) came
+from a **flat** `StratifiedKFold` over 571 rows with duplicates scattered across
+folds and `test.csv` included. The M2 pool is 476 rows, group-aware, hold-out
+excluded — a different and stricter protocol, so those numbers will **not**
+reproduce exactly, and the clean figure should be lower.
+
+M3 therefore runs **both** protocols. The gap between them quantifies how much of
+the original score was duplicate leakage, which is itself a reportable result.
+
+### Next
+
+**M3 · Baselines** — majority, TF-IDF + LogReg, keyword-rules, plus the
+`has_body`-only control, across both protocols and both data modes.
+
+---
+
 ## 2026-09-22 — M0 · Project scaffold ✅
 
 ### Done
@@ -73,8 +149,10 @@ All figures measured directly from `gold_dataset.csv`, not taken from the plan P
 
 | # | Item | Status |
 |---|---|---|
-| 1 | Install CUDA PyTorch (`--index-url .../cu128`), ~2.5 GB | ⏳ needs go-ahead |
-| 2 | `ollama pull llama3.2:3b`, ~2 GB | ⏳ needs go-ahead |
+| 1 | Install CUDA PyTorch | ✅ `torch 2.11.0+cu128`, RTX 3050 visible |
+| 2 | `ollama pull llama3.2:3b` | ✅ pulled and answering |
 | 3 | Verify SemEval-2020 Task 11 is actually obtainable (D3) | ⏳ M8 |
 | 4 | Rotate the API keys committed to the old repo's `.env` | ⏳ user action |
 | 5 | Confirm scope: research result (M0–M7) vs full system (M0–M11) | ⏳ |
+| 6 | Correct the plan's "`[CLS]` → 768-dim" claim: mmBERT-small is **384** | ⏳ M11 write-up |
+| 7 | 1024-token ablation now confirmed feasible on 6 GB (3.66 GB at 8×512) | ⏳ M6 |
