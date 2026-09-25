@@ -31,6 +31,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 os.environ.setdefault("HF_HOME", str(ROOT / ".cache" / "huggingface"))
+# hf_xet (HuggingFace's chunked downloader) stalls partway through the
+# "reconstructing file" stage on Windows - the blob never lands on disk and
+# the run hangs with a frozen progress bar. Fall back to plain HTTP.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 from osint_shield.config import load_config  # noqa: E402
 
