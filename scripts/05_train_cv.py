@@ -1,0 +1,297 @@
+#!/usr/bin/env python
+"""M5 - full cross-validation: 5 folds x 3 seeds.
+
+The first number that can honestly be compared with the TF-IDF bar.
+
+    python scripts/05_train_cv.py                       # keyword fusion ON (group_counts)
+    python scripts/05_train_cv.py --keywords off        # the control arm
+    python scripts/05_train_cv.py --compare             # fusion vs off, side by side
+
+~30 minutes per arm for mmBERT-small. Close browsers first - the GPU also drives
+the display. Safe to interrupt: rerun the same command and it resumes from the
+last completed (fold, seed).
+
+TF-IDF is recomputed here on exactly the same five folds, so each fold is a
+like-for-like comparison rather than a comparison against an average.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+# Must run before anything imports transformers - HF_HOME is read at import time.
+from osint_shield.runtime import configure_environment  # noqa: E402
+
+configure_environment()
+
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+
+from osint_shield.config import load_config  # noqa: E402
+from osint_shield.data.loaders import build_text, load_fold_frame  # noqa: E402
+from osint_shield.evaluation.baselines import cross_val_predict  # noqa: E402
+from osint_shield.evaluation.metrics import (  # noqa: E402
+    binary_f1,
+    collapse_narrative,
+    confusion_frame,
+    macro_f1,
+    per_class_f1,
+)
+from osint_shield.models import load_tokenizer  # noqa: E402
+from osint_shield.runtime import get_device, gpu_memory, is_cuda_oom  # noqa: E402
+from osint_shield.training import prepare_data  # noqa: E402
+from osint_shield.training.cv import (  # noqa: E402
+    ConfigMismatchError,
+    ensure_snapshot,
+    load_predictions,
+    run_cv,
+    runs_frame,
+    summarise,
+)
+
+RUNS_DIR = ROOT / "runs" / "m5"
+KEYWORD_ARMS = ["group_counts", "off", "per_keyword", "markers"]
+
+#: task -> (column, scorer, metric key in the encoder results)
+TASKS = {
+    "narrative 5-class": ("narrative", "macro", "narrative_macro_f1"),
+    "narrative 3-class": ("narrative", "macro3", "narrative_collapsed_macro_f1"),
+    "severity F1(High)": ("severity", "binary", "severity_f1_high"),
+}
+OK, BAD, INFO = "  [ok]  ", "  [!!]  ", "  [..]  "
+
+
+# --------------------------------------------------------------------- TF-IDF
+def tfidf_per_fold(df: pd.DataFrame, cfg: dict) -> dict[str, dict[int, float]]:
+    """Score TF-IDF + LogReg on exactly the encoder's folds."""
+    frame = df.assign(text=build_text(df, sep=" ",
+                                      no_body_marker=cfg["data"]["no_body_marker"]))
+    folds = frame["fold"].to_numpy()
+    out: dict[str, dict[int, float]] = {}
+    for task, (col, scorer, _) in TASKS.items():
+        family = "narrative" if col == "narrative" else "severity"
+        y_true, y_pred = cross_val_predict(frame, frame[col].to_numpy(), folds,
+                                           "tfidf_logreg", family)
+        if scorer == "macro3":
+            y_true, y_pred = collapse_narrative(y_true), collapse_narrative(y_pred)
+        scores = {}
+        for f in np.unique(folds):
+            m = folds == f
+            scores[int(f)] = (binary_f1(y_true[m], y_pred[m], "High") if scorer == "binary"
+                              else macro_f1(y_true[m], y_pred[m]))
+        out[task] = scores
+    return out
+
+
+def verdict(deltas: list[float]) -> str:
+    """Read a set of per-fold paired deltas conservatively. Five folds is not many."""
+    mean, wins = float(np.mean(deltas)), sum(d > 0 for d in deltas)
+    if abs(mean) < 0.02:
+        return "matches the bar"
+    if mean > 0 and wins >= 4:
+        return "BEATS the bar"
+    if mean < 0 and wins <= 1:
+        return "BELOW the bar"
+    return "inconclusive"
+
+
+# -------------------------------------------------------------------- reports
+def report(df_runs: pd.DataFrame, summary: dict, tfidf: dict, oof: pd.DataFrame,
+           cfg: dict) -> list[str]:
+    """Print the M5 report and return it as markdown lines for report.md."""
+    md: list[str] = []
+    n = summary["n_runs"]
+    max_epochs = cfg["training"]["epochs"]
+
+    print("\n" + "=" * 86)
+    print(f"  RESULTS - {n} runs ({df_runs['seed'].nunique()} seeds x "
+          f"{df_runs['fold'].nunique()} folds)")
+    print("=" * 86)
+    header = (f"  {'task':<20}{'encoder':>16}{'TF-IDF':>10}{'paired Δ':>11}"
+              f"{'folds won':>11}   verdict")
+    print(header)
+    md += ["| task | encoder (mean ± std) | TF-IDF | paired Δ | folds won | verdict |",
+           "|---|---|---|---|---|---|"]
+
+    for task, (_, _, key) in TASKS.items():
+        s = summary["metrics"][key]
+        fold_means = s["fold_means"]
+        tf = tfidf[task]
+        deltas = [fold_means[f] - tf[f] for f in sorted(tf) if f in fold_means]
+        wins = sum(d > 0 for d in deltas)
+        v = verdict(deltas)
+        enc = f"{s['mean']:.3f} ± {s['std']:.3f}"
+        print(f"  {task:<20}{enc:>16}{np.mean(list(tf.values())):>10.3f}"
+              f"{np.mean(deltas):>+11.3f}{f'{wins}/{len(deltas)}':>11}   {v}")
+        md.append(f"| {task} | {enc} | {np.mean(list(tf.values())):.3f} | "
+                  f"{np.mean(deltas):+.3f} | {wins}/{len(deltas)} | {v} |")
+
+    p = summary["metrics"]["propaganda_f1_pos"]
+    seen = summary["propaganda_pos_seen_per_seed"]
+    print(f"  {'propaganda F1(pos)':<20}{p['mean']:>9.3f} ± {p['std']:.3f}"
+          f"   diagnostic only - positives in test folds per seed: {seen}")
+    md.append(f"| propaganda F1(pos) | {p['mean']:.3f} ± {p['std']:.3f} | 0.000 | — | — | "
+              f"diagnostic ({seen} positives per seed) |")
+
+    print("\n  spread  (std of per-seed means = training noise; per-fold = split variation)")
+    for key, label in [("narrative_macro_f1", "narrative 5-class"),
+                       ("severity_f1_high", "severity F1(High)")]:
+        s = summary["metrics"][key]
+        print(f"    {label:<20} seed {s['seed_spread']:.3f}   fold {s['fold_spread']:.3f}   "
+              f"seed means {s['seed_means']}")
+
+    be = summary["best_epoch"]
+    print(f"\n  best epoch  distribution {be['distribution']}   median {be['median']:.0f}   "
+          f"at the {max_epochs}-epoch ceiling: {be['share_at_ceiling'] * 100:.0f}%")
+    if be["share_at_ceiling"] >= 0.5:
+        print(f"{BAD}most runs peaked at the final epoch - D8 trigger: M6 should sweep LR/epochs")
+    md += ["", f"Best epoch distribution {be['distribution']}, "
+               f"{be['share_at_ceiling'] * 100:.0f}% at the ceiling."]
+
+    # pooled error structure across every run
+    t3, p3 = collapse_narrative(oof["true_narrative"]), collapse_narrative(oof["pred_narrative"])
+    print("\n  pooled 3-class confusion, all runs  (rows = truth)")
+    print("  " + confusion_frame(t3, p3).to_string().replace("\n", "\n  "))
+    print("\n  per-class F1, 5-class, pooled:")
+    for label, f1 in per_class_f1(oof["true_narrative"], oof["pred_narrative"]).items():
+        print(f"    {label:<14} {f1:.3f}")
+
+    alarms = summary["leakage_alarms"]
+    print(f"\n{OK if alarms == 0 else BAD}leakage alarms (narrative accuracy > 0.92): {alarms}")
+    print(f"{INFO}total training time {summary['seconds_total'] / 60:.1f} min   "
+          f"peak VRAM {summary['peak_vram_gb_max']:.2f} GB")
+    return md
+
+
+def compare_arms(model_short: str, mode: str) -> int:
+    """Keyword fusion vs no fusion: paired per (fold, seed), same folds, same seeds."""
+    frames = {}
+    for arm in KEYWORD_ARMS:
+        path = RUNS_DIR / f"{model_short}_{mode}_kw-{arm}" / "cv.csv"
+        if path.exists():
+            frames[arm] = pd.read_csv(path)
+    if len(frames) < 2:
+        print(f"need at least two completed arms under {RUNS_DIR}; found {sorted(frames)}")
+        return 1
+
+    print("=" * 86)
+    print(f"  keyword fusion arms - {model_short}, {mode}")
+    print("=" * 86)
+    keys = [("narrative_macro_f1", "narrative 5-class"),
+            ("narrative_collapsed_macro_f1", "narrative 3-class"),
+            ("severity_f1_high", "severity F1(High)")]
+    print(f"  {'arm':<14}" + "".join(f"{label:>22}" for _, label in keys))
+    for arm, df in frames.items():
+        cells = "".join(f"{df[k].mean():>14.3f} ± {df[k].std(ddof=0):.3f}" for k, _ in keys)
+        print(f"  {arm:<14}{cells}")
+
+    if "off" in frames:
+        print("\n  paired against 'off'  (same fold, same seed - only the keyword arm differs)")
+        base = frames["off"].set_index(["seed", "fold"])
+        for arm, df in frames.items():
+            if arm == "off":
+                continue
+            joined = df.set_index(["seed", "fold"]).join(base, rsuffix="_off", how="inner")
+            print(f"  {arm}  ({len(joined)} paired runs)")
+            for k, label in keys:
+                d = joined[k] - joined[f"{k}_off"]
+                print(f"    {label:<22} Δ {d.mean():+.3f} ± {d.std(ddof=0):.3f}   "
+                      f"better in {(d > 0).sum()}/{len(d)} runs")
+    return 0
+
+
+# ----------------------------------------------------------------------- main
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--config", default="mmbert_small.yaml")
+    ap.add_argument("--mode", choices=["body_only", "all"], default=None)
+    ap.add_argument("--keywords", choices=KEYWORD_ARMS, default=None,
+                    help="keyword fusion arm (default: from config)")
+    ap.add_argument("--seeds", type=int, nargs="+", default=None)
+    ap.add_argument("--folds", type=int, nargs="+", default=None)
+    ap.add_argument("--no-resume", action="store_true",
+                    help="retrain every run even if results exist")
+    ap.add_argument("--compare", action="store_true",
+                    help="compare completed keyword arms instead of training")
+    args = ap.parse_args()
+
+    cfg = load_config(args.config)
+    mode = args.mode or cfg["data"]["mode"]
+    model_short = cfg["model"]["name"].split("/")[-1]
+    if args.compare:
+        return compare_arms(model_short, mode)
+
+    arm = args.keywords or (cfg["keywords"]["mode"] if cfg["keywords"]["enabled"] else "off")
+    cfg["keywords"]["mode"] = arm
+    cfg["keywords"]["enabled"] = arm != "off"
+    seeds = args.seeds or cfg["seeds"]
+    folds = args.folds or list(range(cfg["split"]["n_folds"]))
+    out_dir = RUNS_DIR / f"{model_short}_{mode}_kw-{arm}"
+
+    print("=" * 86)
+    print(f"M5  {cfg['model']['name']}   mode={mode}   keywords={arm}")
+    print(f"    seeds {seeds}   folds {folds}   -> {len(seeds) * len(folds)} runs")
+    print(f"    monitor {cfg['training']['monitor']}   epochs <= {cfg['training']['epochs']}   "
+          f"lr {cfg['training']['lr']}   out {out_dir.relative_to(ROOT)}")
+    print("=" * 86)
+
+    try:
+        ensure_snapshot(out_dir, cfg, resume=not args.no_resume)
+    except ConfigMismatchError as exc:
+        print(f"\n{BAD}{exc}")
+        return 1
+
+    device = get_device()
+    mem = gpu_memory()
+    if mem is None:
+        print(f"{BAD}no GPU - 15 runs on CPU would take many hours. Check M1.")
+        return 1
+    free, total = mem
+    print(f"{OK if free >= 3.5 else BAD}free VRAM {free:.2f} of {total:.2f} GB"
+          + ("" if free >= 3.5 else "  - close browsers and other GPU apps first"))
+
+    tok = load_tokenizer(cfg["model"]["name"])
+    df = load_fold_frame(mode)
+    data = prepare_data(df, tok, cfg)
+    print(f"{OK}{len(df)} articles   {data.truncated.mean() * 100:.1f}% truncated at "
+          f"{data.max_length}   keyword features {data.n_keyword_features}")
+
+    try:
+        results = run_cv(data, cfg, folds=folds, seeds=seeds, device=device,
+                         out_dir=out_dir, resume=not args.no_resume)
+    except KeyboardInterrupt:
+        print("\n\n  interrupted - completed runs are saved. Rerun the same command to resume.")
+        return 130
+    except RuntimeError as exc:
+        if not is_cuda_oom(exc):
+            raise
+        print(f"\n{BAD}CUDA out of memory. Completed runs are saved.")
+        print("        Close browsers / Copilot / Xbox app, then rerun the same command.")
+        return 1
+
+    df_runs = runs_frame(results)
+    summary = summarise(df_runs, max_epochs=cfg["training"]["epochs"])
+    oof = load_predictions(out_dir, [(s, f) for s in seeds for f in folds])
+    tfidf = tfidf_per_fold(df, cfg)
+    md = report(df_runs, summary, tfidf, oof, cfg)
+
+    df_runs.to_csv(out_dir / "cv.csv", index=False)
+    oof.to_csv(out_dir / "oof.csv", index=False)
+    summary["tfidf_per_fold"] = tfidf
+    (out_dir / "summary.json").write_text(json.dumps(summary, indent=2, default=str),
+                                          encoding="utf-8")
+    (out_dir / "report.md").write_text(
+        f"# M5 · {cfg['model']['name']} · {mode} · keywords={arm}\n\n" + "\n".join(md) + "\n",
+        encoding="utf-8")
+    print(f"\n  written to {out_dir.relative_to(ROOT)}  (cv.csv, oof.csv, summary.json, report.md)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -20,7 +20,7 @@ from pathlib import Path
 import pandas as pd
 
 from ..config import narrative_label_maps, severity_label_maps
-from ..paths import DATA_RAW, GOLD_CSV
+from ..paths import DATA_PROCESSED, DATA_RAW, GOLD_CSV
 
 #: Columns kept from the raw CSV. Everything else is annotation bookkeeping.
 KEEP_COLUMNS = [
@@ -126,6 +126,29 @@ def load_gold(
             n = int(df["split_orig"].isna().sum())
             raise ValueError(f"{n} gold rows belong to no split file")
 
+    return df
+
+
+def load_fold_frame(mode: str, processed_dir: Path | None = None) -> pd.DataFrame:
+    """Join the persisted M2 fold assignments with article text.
+
+    Training always reads folds from ``data/processed/folds_<mode>.csv`` rather
+    than recomputing them, so every milestone scores on identical splits.
+
+    Raises:
+        FileNotFoundError: if M2 has not been run for this mode.
+        ValueError: if a fold id is missing from the corpus.
+    """
+    path = (processed_dir or DATA_PROCESSED) / f"folds_{mode}.csv"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{path} not found - run: python scripts/02_build_folds.py --mode both"
+        )
+    folds = pd.read_csv(path)
+    text = load_gold()[["id", "clean_headline", "clean_text"]]
+    df = folds.merge(text, on="id", how="left", validate="one_to_one")
+    if df["clean_headline"].isna().any():
+        raise ValueError("some fold ids are missing from the corpus - rebuild the folds")
     return df
 
 

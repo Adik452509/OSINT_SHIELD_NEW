@@ -34,6 +34,32 @@ def get_device(prefer: str | None = None):
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+def gpu_memory() -> tuple[float, float] | None:
+    """``(free_gb, total_gb)`` on the current CUDA device, or ``None`` without one.
+
+    On this laptop the GPU also drives the display, so "free" moves with
+    whatever windows are open - check it immediately before a long run.
+    """
+    import torch
+
+    if not torch.cuda.is_available():
+        return None
+    free, total = torch.cuda.mem_get_info()
+    return free / 1024**3, total / 1024**3
+
+
+def is_cuda_oom(exc: BaseException) -> bool:
+    """True for CUDA out-of-memory, whichever way it surfaces.
+
+    The caching allocator raises ``torch.OutOfMemoryError``; a library such as
+    cuBLAS failing to get workspace raises a generic ``AcceleratorError`` whose
+    message says "out of memory".
+    """
+    import torch
+
+    return isinstance(exc, torch.OutOfMemoryError) or "out of memory" in str(exc).lower()
+
+
 def set_seed(seed: int) -> None:
     """Seed every RNG a training run touches."""
     import torch
