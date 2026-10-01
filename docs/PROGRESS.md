@@ -5,6 +5,59 @@ Running log. Newest first. See [DECISIONS.md](DECISIONS.md) for the reasoning be
 
 ---
 
+## 2026-10-02 — M4 · Multi-task model + training loop ✅
+
+### Done
+
+- `src/osint_shield/models/` — `MultiTaskModel` (shared encoder, one linear head per task,
+  keyword fusion at the pooled vector with train-fold standardisation stored as buffers),
+  `class_weights` (training-fold labels only, propaganda capped at 10×), `MultiTaskLoss`,
+  `freeze_input_embeddings`.
+- `src/osint_shield/training/` — `Trainer` (bf16 AMP, gradient accumulation with a flushed final
+  step, linear warmup/decay, early stopping with a `min_epochs` floor), `ArticleDataset` with
+  dynamic padding, and `fold.py`: group-aware inner split, disjointness assertions, overfit check.
+- `src/osint_shield/runtime.py` — HF cache, device, seeding.
+- `scripts/04_train_one_fold.py` — pre-flight VRAM check, friendly OOM handling.
+- Not in the original M4 file list: `runtime.py`, `training/dataset.py`, `training/fold.py`.
+
+**Verified** `pytest` all green; overfit check passed; fold 0 passed every M4 check.
+
+### Results
+
+**Overfit check** (40 rows, scored on themselves): narrative / severity / propaganda F1 **1.000 /
+1.000 / 1.000**, loss 3.98 → 0.00005, peak VRAM 2.62 GB, 41 s.
+
+**Fold 0** (mmBERT-small, `body_only`, seed 42; train 333 / inner-val 47 / test 96):
+
+| | fold 0 | TF-IDF clean bar (5-fold mean) |
+|---|---|---|
+| narrative 5-class | 0.523 | 0.466 |
+| narrative 3-class | 0.584 | 0.604 |
+| severity F1(High) | 0.596 | 0.687 |
+| propaganda F1 | 0.000 (1 pos, 0 predicted) | 0.000 |
+
+Peak VRAM 2.8 GB; 114 s per fold → M5's 15 runs ≈ 30 min for mmBERT-small. Narrative accuracy
+0.781, below the 0.92 leakage alarm. Single fold, single seed: ±0.05 noise, not a verdict.
+
+### Findings
+
+- **OOM on the first attempt** → D9. The GPU also drives the display (1.36 GB used idle), and M1
+  had under-measured (fp16 `GradScaler` skipped the first step, so AdamW state was never
+  allocated). Fixed with SDPA attention and frozen word embeddings: mmBERT batch 8 4.73 → 2.63 GB,
+  XLM-R batch 4 5.25 → 2.71 GB.
+- **`min_epochs` vindicated.** Inner-val narrative F1 was flat for 3 epochs (0.13/0.11/0.16). The
+  plan's patience-2-no-floor would have stopped there.
+- **Single-task monitor sacrificed severity** → D10, monitor is now `combined`.
+- **Best epoch = final epoch** with LR at zero — D8's revisit trigger, deferred to M5's 15-run
+  evidence because the 47-row inner-val signal is too noisy to act on from one run.
+
+### Next
+
+**M5 · Full cross-validation** — 5 folds × 3 seeds, mmBERT-small first, with best-epoch
+distribution recorded.
+
+---
+
 ## 2026-09-25 — M3 · Baselines ✅
 
 ### Done
@@ -241,4 +294,4 @@ All figures measured directly from `gold_dataset.csv`, not taken from the plan P
 | 4 | Rotate the API keys committed to the old repo's `.env` | ⏳ user action |
 | 5 | Confirm scope: research result (M0–M7) vs full system (M0–M11) | ⏳ |
 | 6 | Correct the plan's "`[CLS]` → 768-dim" claim: mmBERT-small is **384** | ⏳ M11 write-up |
-| 7 | 1024-token ablation now confirmed feasible on 6 GB (3.66 GB at 8×512) | ⏳ M6 |
+| 7 | ~~1024-token ablation confirmed feasible (3.66 GB at 8×512)~~ — **wrong, see D9.** M1 under-measured; re-probe 1024 with frozen embeddings + sdpa before relying on it | ⏳ M6 |

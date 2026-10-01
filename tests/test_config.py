@@ -56,7 +56,7 @@ def test_model_configs_inherit_and_override(name, model, batch):
     assert cfg["model"]["name"] == model
     assert cfg["training"]["batch_size"] == batch
     # inherited from base.yaml, untouched by the override
-    assert cfg["training"]["epochs"] == 5
+    assert cfg["training"]["epochs"] == 10
     assert cfg["split"]["n_folds"] == 5
     assert "extends" not in cfg
 

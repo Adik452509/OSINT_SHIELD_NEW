@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
 
-from ..config import collapse_map
+from ..config import collapse_map, narrative_label_maps, severity_label_maps
 
 #: Narrative accuracy above this is a leakage alarm, not a success - the
 #: annotators only agreed with each other 74.3% of the time.
@@ -149,6 +149,54 @@ def severity_by_has_body(
             "accuracy": float(accuracy_score(y_true[mask], y_pred[mask])),
             "actual_high_rate": float((y_true[mask] == pos_label).mean()),
         }
+    return out
+
+
+def score_multitask(y_true: dict, y_pred: dict, *, has_body=None) -> dict:
+    """Score every head the model has, using the project's reporting rules.
+
+    Args:
+        y_true: ``{task: integer labels}``.
+        y_pred: ``{task: integer predictions}``. Tasks absent here are skipped.
+        has_body: per-row flag; when given, severity is also broken out by it.
+
+    Returns:
+        Flat dict of scalar metrics, plus ``severity_by_has_body`` when
+        ``has_body`` is supplied. ``propaganda_n_pos`` always rides alongside
+        the propaganda score - it is meaningless without it.
+    """
+    out: dict = {}
+
+    if "narrative" in y_pred:
+        _, id_to_name = narrative_label_maps()
+        t = np.asarray(y_true["narrative"], dtype=int)
+        p = np.asarray(y_pred["narrative"], dtype=int)
+        out["narrative_macro_f1"] = macro_f1(t, p)
+        out["narrative_accuracy"] = float(accuracy_score(t, p))
+        names_t = [id_to_name[i] for i in t]
+        names_p = [id_to_name[i] for i in p]
+        out["narrative_collapsed_macro_f1"] = macro_f1(
+            collapse_narrative(names_t), collapse_narrative(names_p)
+        )
+
+    if "severity" in y_pred:
+        _, id_to_sev = severity_label_maps()
+        t = np.asarray(y_true["severity"], dtype=int)
+        p = np.asarray(y_pred["severity"], dtype=int)
+        out["severity_f1_high"] = binary_f1(t, p, pos_label=1)
+        out["severity_accuracy"] = float(accuracy_score(t, p))
+        if has_body is not None:
+            out["severity_by_has_body"] = severity_by_has_body(
+                [id_to_sev[i] for i in t], [id_to_sev[i] for i in p], has_body
+            )
+
+    if "propaganda" in y_pred:
+        t = np.asarray(y_true["propaganda"], dtype=int)
+        p = np.asarray(y_pred["propaganda"], dtype=int)
+        out["propaganda_f1_pos"] = binary_f1(t, p, pos_label=1)
+        out["propaganda_n_pos"] = int(t.sum())
+        out["propaganda_n_pred_pos"] = int(p.sum())
+
     return out
 
 

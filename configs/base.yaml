@@ -51,14 +51,26 @@ split:
 
 tokenizer:
   max_length: 512            # ablate 256 / 512 / 1024
-  padding: max_length
+  # Pad each batch to its own longest sequence, not to max_length: identical
+  # results, less wasted compute on short articles.
+  padding: longest
   truncation: true
 
 model:
   name: jhu-clsp/mmBERT-small
   pooling: cls               # cls | mean
   dropout: 0.1
-  attn_implementation: eager # flash-attn is CUDA-only and brittle; eager is portable
+  # sdpa never materialises the full 512x512 attention matrix. Measured on the
+  # RTX 3050, mmBERT-small batch 8: eager 4.73 GB peak -> sdpa 3.36 GB.
+  # (flash-attn proper is unavailable on Windows; sdpa is the portable option.)
+  attn_implementation: sdpa
+  # Freeze the word-embedding table. It holds most of each model's parameters
+  # (192 M of XLM-R's 278 M) as lookup rows this corpus barely touches - the
+  # plan's own S3.1 argument. Without it, XLM-R's weights + grads + AdamW
+  # state alone are ~4.4 GB and do not fit beside the Windows desktop, which
+  # shares this GPU. Measured: XLM-R batch 4 5.25 GB -> 2.71 GB.
+  # See docs/DECISIONS.md D9.
+  freeze_embeddings: true
 
 heads:
   narrative:  {enabled: true,  n_classes: 5, loss_weight: 1.0, class_weight: balanced}
@@ -83,19 +95,37 @@ keywords:
   fuse_at: cls               # concatenated to the pooled vector before the heads
 
 training:
-  epochs: 5
-  patience: 2                # early stop on inner-val narrative macro-F1
-  inner_val_size: 0.12       # carved from the training fold; the test fold stays untouched
+  # The plan's "5 epochs, patience 2" was calibrated on 744 training rows. The
+  # body_only inner-train split here is ~335 rows - about 21 optimizer steps an
+  # epoch at effective batch 16, so 5 epochs is ~105 steps and likely
+  # undertrained. 10 epochs with early stopping still guards against overfit.
+  # See docs/DECISIONS.md D8.
+  epochs: 10
+  patience: 3
+  # Early epochs often sit at majority-class F1 while the randomly initialised
+  # heads warm up. Without a floor, patience can fire before learning starts.
+  min_epochs: 3
+  # mean of inner-val narrative macro-F1 and severity F1(High). Watching
+  # narrative alone let severity decay unchecked: in the M4 fold-0 run severity
+  # peaked at epoch 5 and fell while narrative peaked at 10. See D10.
+  monitor: combined              # narrative_macro_f1 | combined
+  # Carved from the training fold with StratifiedGroupKFold, so near-duplicates
+  # never straddle inner-train and inner-val either. The outer test fold is
+  # never touched until after training.
+  inner_val_size: 0.12
   batch_size: 8
   grad_accum: 2              # effective batch 16
+  eval_batch_size: 16
   lr: 2.0e-5
   weight_decay: 0.01
   warmup_ratio: 0.1
   scheduler: linear
   max_grad_norm: 1.0
-  # 6 GB VRAM: AMP is what makes batch 8 @ 512 fit for xlm-roberta-base.
+  # bf16 over fp16: same memory, no loss scaling, no overflow. The RTX 3050
+  # (Ampere) supports it - M1 reported bf16 supported: True. Fall back to fp16
+  # here if a run reports a non-finite loss.
   amp: true
-  amp_dtype: fp16
+  amp_dtype: bf16            # bf16 | fp16
   gradient_checkpointing: false   # turn on for max_length >= 1024
   num_workers: 0             # Windows spawn overhead; 4 physical cores
 

@@ -217,3 +217,106 @@ Ryzen 5 7235HS (4c/8t), 11.7 GB RAM, Windows 11. Colab/Kaggle and the M2 Mac are
 - Ollama and training cannot share the GPU. Do not run the LLM stage during a training run.
 - Everything macOS-specific in the reference scripts (`caffeinate`, `torch.backends.mps`,
   `~/osint_nlp/...` paths) is dropped.
+
+---
+
+## D8 · Training schedule recalibrated for the smaller fold — 2026-10-02
+
+**Decision.** `epochs: 10`, `patience: 3`, `min_epochs: 3` (plan: 5 / 2 / none). `amp_dtype: bf16`
+(was fp16). Dynamic padding (`padding: longest`). Inner validation split is group-aware.
+
+**Why.**
+
+- **Epochs.** The plan's "5 epochs, best epoch typically 3 or 4" was calibrated on 744 training
+  rows. Here the `body_only` inner-train split is ~335 rows — about 21 optimizer steps an epoch at
+  effective batch 16, so 5 epochs is ~105 steps in total. That is likely undertrained. Doubling
+  the ceiling costs nothing when early stopping still governs where the run ends.
+- **`min_epochs`.** Randomly initialised heads often sit at majority-class F1 (0.172) for the first
+  epochs while warmup completes. With patience 2 and no floor, a run can stop at epoch 3 *before
+  it has started learning* — indistinguishable in the logs from genuine early convergence.
+- **bf16.** Same memory as fp16, but with fp32's exponent range, so no loss scaling and no
+  overflow. M1 confirmed the RTX 3050 supports it. The trainer falls back to fp16 automatically
+  if bf16 is unavailable, and raises a descriptive error on any non-finite loss.
+- **Dynamic padding.** Pads each batch to its own longest item. Results are identical; compute is
+  not wasted on padding.
+- **Group-aware inner split.** Uses `StratifiedGroupKFold`, so near-duplicates cannot straddle
+  inner-train and inner-val. Otherwise early stopping would select an epoch on the strength of
+  articles the model had effectively already seen — the D5 leak, one level down.
+
+**Revisit** in M6 if the M5 learning curves show the best epoch consistently at the ceiling (raise
+it) or at `min_epochs` (lower it).
+
+---
+
+## D9 · Freeze word embeddings, use SDPA attention — 2026-10-02
+
+**Decision.** `model.freeze_embeddings: true` and `model.attn_implementation: sdpa`, for **both**
+candidates, so the bake-off stays like-for-like.
+
+**What happened.** The first M4 overfit run hit CUDA out-of-memory on batch 1 — for a model M1 had
+measured at 3.66 GB on a 6 GB card.
+
+**Two causes, both measured.**
+
+1. **The RTX 3050 also drives the display.** `nvidia-smi` shows `Disp.A: On`, and M1's adapter
+   list shows no active integrated GPU. Windows, the browsers, VS Code and every other window draw
+   from the same 6 GB: **1.36 GB in use with nothing training**. Real headroom is ~4.6 GB, and it
+   moves with whatever is open.
+2. **M1's measurement was wrong.** M1 ran a single fp16 step. fp16's `GradScaler` starts at a
+   scale of 65536, the first step overflows, and the optimiser step is *skipped* — so AdamW's two
+   per-parameter state tensors were never allocated. Two real bf16 steps, with a padded mask:
+
+| Model · attention · batch | full fine-tune | **frozen embeddings** |
+|---|---|---|
+| mmBERT-small · eager · 8 | 4.73 GB | — |
+| mmBERT-small · sdpa · 8 | 3.36 GB (0.60 free) | **2.63 GB (2.24 free)** |
+| mmBERT-small · sdpa · 4 | 2.66 GB | 1.78 GB |
+| xlm-roberta-base · sdpa · 4 | **5.25 GB (0.00 free)** | **2.71 GB (2.24 free)** |
+
+XLM-R does not fit at all without the freeze: weights + gradients + AdamW state come to ~4.4 GB
+before a single activation.
+
+**Why freezing is principled, not just a workaround.** It is the conclusion of the plan's own §3.1:
+the word-embedding table is lookup rows, most of which this corpus never touches (192 M of XLM-R's
+278 M parameters; ~98 M of mmBERT-small's 140 M), and the transformer body is what can learn — and
+overfit. Freezing removes their gradients and AdamW state (~12 bytes per parameter) and removes
+capacity to memorise a ~335-row fold. Position embeddings and the body stay trainable.
+
+**Cost to record.** Domain vocabulary (Indic-script names, unit and weapon names) cannot adapt its
+embeddings. Tested in M6 as an ablation: mmBERT-small with embeddings unfrozen fits at sdpa batch 4
+(1.65 GB margin), so the comparison is runnable.
+
+**Corrections this forces.**
+- M1's VRAM figures and its "1024-token ablation is feasible" claim are withdrawn. Re-probe 1024
+  with this configuration before M6 relies on it.
+- Training must run with browsers and other GPU-heavy apps closed. `04_train_one_fold.py` now
+  reports free VRAM before loading anything and warns below 3.5 GB.
+
+---
+
+## D10 · Early stopping watches both tasks — 2026-10-02
+
+**Decision.** `training.monitor: combined` — the mean of inner-val narrative macro-F1 and severity
+F1(High). Was `narrative_macro_f1`.
+
+**Why.** In the M4 fold-0 run, the **inner-validation** curves (`history.csv`) diverged:
+
+| epoch | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|
+| val narrative macro-F1 | 0.165 | 0.233 | 0.290 | 0.251 | 0.389 | 0.389 | 0.300 | **0.502** |
+| val severity F1(High) | 0.000 | 0.432 | **0.585** | 0.545 | 0.552 | 0.556 | 0.485 | 0.485 |
+
+Monitoring narrative alone restored epoch 10, by which point severity had decayed from its peak.
+A shared encoder with a single-task monitor trades the other task away by construction — that
+argument holds independently of this one run's noise, which is why this change is made now and the
+others are not.
+
+**The rule this respects.** The decision uses inner-validation curves only. The fold-0 **test**
+numbers (severity 0.596 against a 0.687 bar) are not an input: tuning against the outer test fold
+leaks it into model selection and inflates every later number.
+
+**Deliberately not changed yet.** Best epoch was the final epoch, with LR already decayed to zero —
+D8's revisit trigger. But the inner-val set is 47 rows, roughly one example per rare class, and its
+macro-F1 jumped 0.30 → 0.50 between the last two epochs; one run cannot separate undertraining
+from noise. M5 records best epoch across 15 runs. If most land at the ceiling, an LR/epoch sweep is
+M6's first job.
