@@ -6,7 +6,12 @@ extends: base.yaml
 
 model:
   name: jhu-clsp/mmBERT-small
-  pooling: cls
+  # The model's own config ships `classifier_pooling: mean`. Position 0 is
+  # <bos>, which MLM-only pretraining never trained as a sentence summary, and
+  # 2 of every 3 ModernBERT layers use local attention (window 128) - so a
+  # <bos> vector mostly sees the first ~64 tokens of a 512-token article.
+  # M5 ran with `cls` against the model's design. See docs/DECISIONS.md D11.
+  pooling: mean
 
 # Fits comfortably on 6 GB at 512 tokens.
 training:

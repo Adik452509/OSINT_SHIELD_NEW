@@ -8,6 +8,9 @@ extends: base.yaml
 
 model:
   name: FacebookAI/xlm-roberta-base
+  # Each candidate uses its native classification pooling: RoBERTa-family
+  # sequence classifiers read the <s> token, and every layer here is global
+  # attention, so <s> does see the whole input. mmBERT uses mean (D11).
   pooling: cls
 
 tokenizer:

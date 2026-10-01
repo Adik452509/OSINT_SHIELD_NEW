@@ -94,11 +94,18 @@ def param_groups(model: torch.nn.Module, weight_decay: float) -> list[dict]:
 
 
 def monitor_score(metrics: dict, monitor: str) -> float:
-    """The scalar early stopping watches."""
+    """The scalar early stopping watches.
+
+    ``combined`` averages narrative macro-F1 with severity **macro**-F1, not
+    severity F1(High). F1(High) rewards the degenerate all-High predictor that
+    randomly initialised heads often produce in epoch 1-2 (~0.5 on a 47-row
+    inner-val set), and M5 restored three such untrained checkpoints because of
+    it - see docs/DECISIONS.md D11.
+    """
     if monitor == "narrative_macro_f1":
         return float(metrics["narrative_macro_f1"])
     if monitor == "combined":
-        return float(np.mean([metrics["narrative_macro_f1"], metrics["severity_f1_high"]]))
+        return float(np.mean([metrics["narrative_macro_f1"], metrics["severity_macro_f1"]]))
     raise ValueError(f"unknown monitor: {monitor!r}")
 
 
@@ -193,12 +200,18 @@ class Trainer:
         return total / max(seen, 1), {t: v / max(seen, 1) for t, v in part_sums.items()}
 
     def fit(self, train_ds: ArticleDataset, val_ds: ArticleDataset | None = None,
-            *, early_stopping: bool = True) -> list[dict]:
+            *, track_ds: ArticleDataset | None = None,
+            early_stopping: bool = True) -> list[dict]:
         """Train, monitoring ``val_ds`` if given, and restore the best epoch.
+
+        Args:
+            track_ds: optional dataset scored every epoch **for the record only**
+                - it never influences checkpoint selection. Used to measure how
+                well early stopping chooses, by tracking the outer test fold.
 
         Returns:
             One dict per epoch: losses, learning rate, validation metrics,
-            the monitored score and wall-clock seconds.
+            the monitored score, ``track_*`` metrics and wall-clock seconds.
         """
         s = self.settings
         loader = self._loader(train_ds, shuffle=True, batch_size=s.batch_size)
@@ -231,6 +244,12 @@ class Trainer:
                                   for k, v in self.model.state_dict().items()}
                     marker = " *"
 
+            # scored AFTER the selection decision above, and never read by it
+            if track_ds is not None:
+                tracked = self._evaluate_rng_neutral(track_ds)
+                row.update({f"track_{k}": v for k, v in tracked.items()
+                            if isinstance(v, (int, float))})
+
             row["seconds"] = time.time() - t0
             history.append(row)
             self.log(self._format(row, marker))
@@ -253,6 +272,8 @@ class Trainer:
             line += f"  val narr-F1 {row['val_narrative_macro_f1']:.3f}"
         if "val_severity_f1_high" in row:
             line += f"  sev-F1 {row['val_severity_f1_high']:.3f}"
+        if "track_narrative_macro_f1" in row:
+            line += f"  [test {row['track_narrative_macro_f1']:.3f}]"
         return line + f"  {row['seconds']:5.1f}s{marker}"
 
     # ---------------------------------------------------------------- inference
@@ -266,6 +287,22 @@ class Trainer:
             for task, logits in self._forward(batch).items():
                 chunks[task].append(torch.softmax(logits.float(), dim=-1).cpu().numpy())
         return {task: np.concatenate(parts) for task, parts in chunks.items()}
+
+    def _evaluate_rng_neutral(self, dataset: ArticleDataset) -> dict:
+        """Evaluate without disturbing any random-number stream.
+
+        Building a DataLoader iterator draws a seed from the global generator,
+        so an extra evaluation would otherwise shift every later epoch's shuffle
+        and dropout masks - tracking would silently change training.
+        """
+        cpu_state = torch.get_rng_state()
+        cuda_state = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+        try:
+            return self.evaluate(dataset)
+        finally:
+            torch.set_rng_state(cpu_state)
+            if cuda_state is not None:
+                torch.cuda.set_rng_state_all(cuda_state)
 
     def evaluate(self, dataset: ArticleDataset, has_body=None) -> dict:
         """Score the model on a dataset with :func:`score_multitask`."""

@@ -15,6 +15,7 @@ from osint_shield.training.cv import (
     run_cv,
     run_path,
     runs_frame,
+    selection_analysis,
     summarise,
 )
 from tests.test_training import fast_settings, silent, tiny_builder, toy_data
@@ -67,6 +68,36 @@ def test_summarise_counts_leakage_alarms():
     r = fake_result(42, 0, 0.5)
     r["metrics"]["narrative_accuracy"] = 0.97
     assert summarise(runs_frame([r]), max_epochs=10)["leakage_alarms"] == 1
+
+
+def _tracked(seed, fold, curve, selected_epoch):
+    """A fake run whose test-fold narrative score followed ``curve`` by epoch."""
+    r = fake_result(seed, fold, curve[selected_epoch - 1], best_epoch=selected_epoch)
+    r["history"] = [{"epoch": e + 1, "track_narrative_macro_f1": v,
+                     "track_severity_f1_high": 0.6} for e, v in enumerate(curve)]
+    return r
+
+
+def test_selection_analysis_compares_selected_final_and_oracle():
+    run = _tracked(42, 0, [0.1, 0.5, 0.3], selected_epoch=3)   # chose badly
+    s = selection_analysis([run])["narrative_macro_f1"]
+    assert s["selected"] == pytest.approx(0.3)
+    assert s["final_epoch"] == pytest.approx(0.3)
+    assert s["oracle"] == pytest.approx(0.5)
+    assert s["curve"] == {1: 0.1, 2: 0.5, 3: 0.3}
+
+
+def test_selection_curve_averages_runs_of_different_length():
+    """Early-stopped runs are shorter; each epoch averages only runs that reached it."""
+    a = _tracked(42, 0, [0.2, 0.4], selected_epoch=2)
+    b = _tracked(42, 1, [0.4, 0.6, 0.8], selected_epoch=3)
+    s = selection_analysis([a, b])["narrative_macro_f1"]
+    assert s["curve"][3] == pytest.approx(0.8)
+    assert s["curve_n"] == {1: 2, 2: 2, 3: 1}
+
+
+def test_selection_analysis_is_none_without_tracking():
+    assert selection_analysis([fake_result(42, 0, 0.5)]) is None
 
 
 def test_summary_is_json_serialisable():

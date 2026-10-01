@@ -184,6 +184,11 @@ def score_multitask(y_true: dict, y_pred: dict, *, has_body=None) -> dict:
         t = np.asarray(y_true["severity"], dtype=int)
         p = np.asarray(y_pred["severity"], dtype=int)
         out["severity_f1_high"] = binary_f1(t, p, pos_label=1)
+        # Macro over Low and High. Unlike F1(High), a degenerate "everything is
+        # High" predictor cannot score well here: at ~30% prevalence it gets
+        # F1(High) ~0.46 but severity macro-F1 only ~0.23. Used for early
+        # stopping (docs/DECISIONS.md D11); F1(High) stays the reported metric.
+        out["severity_macro_f1"] = macro_f1(t, p)
         out["severity_accuracy"] = float(accuracy_score(t, p))
         if has_body is not None:
             out["severity_by_has_body"] = severity_by_has_body(

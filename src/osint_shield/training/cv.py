@@ -189,6 +189,47 @@ def summarise(df: pd.DataFrame, *, max_epochs: int) -> dict:
     return out
 
 
+def selection_analysis(results: list[dict]) -> dict | None:
+    """How well did early stopping choose? Needs ``track_test_fold`` runs.
+
+    For each run, compares the test score at the **selected** checkpoint with
+    the score at the **final** epoch and the **best possible** epoch (the
+    oracle - unreachable in practice, it peeks at the test fold). Also returns
+    the mean test-fold learning curve by epoch.
+
+    A selected score well below the oracle means the inner-val signal is too
+    noisy to choose by; selected below final means early stopping is actively
+    harmful and a fixed schedule would do better.
+
+    Returns ``None`` when no run carries tracked metrics.
+    """
+    tasks = {"narrative_macro_f1": "narrative_macro_f1",
+             "severity_f1_high": "severity_f1_high"}
+    tracked = [r for r in results
+               if r.get("history") and f"track_{next(iter(tasks))}" in r["history"][0]]
+    if not tracked:
+        return None
+
+    out: dict = {"n_runs": len(tracked)}
+    for key in tasks:
+        tkey = f"track_{key}"
+        selected = [float(r["metrics"][key]) for r in tracked]
+        final = [float(r["history"][-1][tkey]) for r in tracked]
+        oracle = [max(float(h[tkey]) for h in r["history"]) for r in tracked]
+        curve: dict[int, list[float]] = {}
+        for r in tracked:
+            for h in r["history"]:
+                curve.setdefault(int(h["epoch"]), []).append(float(h[tkey]))
+        out[key] = {
+            "selected": round(float(np.mean(selected)), 4),
+            "final_epoch": round(float(np.mean(final)), 4),
+            "oracle": round(float(np.mean(oracle)), 4),
+            "curve": {e: round(float(np.mean(v)), 4) for e, v in sorted(curve.items())},
+            "curve_n": {e: len(v) for e, v in sorted(curve.items())},
+        }
+    return out
+
+
 def load_predictions(out_dir: Path, plan: list[tuple[int, int]]) -> pd.DataFrame:
     """Concatenate out-of-fold predictions for exactly the given (seed, fold) pairs.
 

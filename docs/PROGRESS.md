@@ -5,6 +5,50 @@ Running log. Newest first. See [DECISIONS.md](DECISIONS.md) for the reasoning be
 
 ---
 
+## 2026-10-02 — M5 · Full cross-validation — ❌ below the bar → diagnosis (D11)
+
+### Done
+
+`src/osint_shield/training/cv.py` (resumable, config-locked, atomic per-run writes),
+`scripts/05_train_cv.py` (paired TF-IDF on identical folds, conservative verdicts, `--compare`,
+`--tag`). Two arms × 15 runs, 26.5 min each, peak VRAM 2.80 GB, 0 leakage alarms.
+
+### Results — mmBERT-small, `body_only`, `pooling: cls`
+
+| task | `group_counts` | `off` | TF-IDF | verdict |
+|---|---|---|---|---|
+| narrative 5-class | 0.323 ± 0.102 | 0.330 ± 0.069 | 0.466 | **below**, 0/5 folds |
+| narrative 3-class | 0.481 ± 0.131 | 0.534 ± 0.080 | 0.604 | **below** |
+| severity F1(High) | 0.622 ± 0.073 | 0.598 ± 0.085 | 0.687 | inconclusive / below |
+| propaganda F1 | 0.000 | 0.000 | 0.000 | diagnostic (5 pos/seed) |
+
+Pooled 5-class F1 (`group_counts` / `off`): Security 0.830 / 0.854, Political 0.434 / 0.523,
+Civilian 0.259 / 0.312, **Investigation 0.160 / 0.000**, Other 0.042 / 0.062.
+
+Keyword fusion vs off, paired: severity +0.024 (10/15), narrative 3-class −0.052 (5/15); std of
+the paired differences 0.13–0.17. **Undecided** — swamped by run-to-run instability.
+
+Best epoch median 8; 20% at the 10-epoch ceiling — D8's trigger **not** hit.
+
+### Diagnosis (D11)
+
+1. **Pooling bug.** mmBERT's config says `classifier_pooling: mean`; we pooled the `<bos>` token,
+   which under 128-token local attention mostly sees the first ~64 tokens.
+2. **Gameable monitor (my D10).** Severity F1(High) rewarded untrained all-High heads; 3/30 runs
+   restored epoch-2/4 checkpoints and scored at majority level.
+3. **Noisy selection + unstable training.** Same config/seed/fold: 0.523 in M4, 0.286 in M5.
+
+Fixed: mean pooling for mmBERT, `combined` monitor on severity macro-F1, per-epoch test-fold
+tracking (record only) to measure selection quality. The CV is now a development set; `test.csv`
+stays held out for the final number.
+
+### Next
+
+Rerun under `--tag v2`: the `off` arm first (does the encoder clear the bar once fixed?), then
+`group_counts`, then `--compare --tag v2`. Original M5 results stay in `runs/m5/` for comparison.
+
+---
+
 ## 2026-10-02 — M4 · Multi-task model + training loop ✅
 
 ### Done

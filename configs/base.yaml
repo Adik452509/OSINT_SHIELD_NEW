@@ -126,6 +126,11 @@ training:
   # here if a run reports a non-finite loss.
   amp: true
   amp_dtype: bf16            # bf16 | fp16
+  # Score the outer test fold every epoch FOR THE RECORD ONLY - it never feeds
+  # checkpoint selection. It measures whether early stopping on a 47-row
+  # inner-val set picks well. Legitimate because the CV is now a development
+  # set and test.csv stays held out for the final number (D1, D11).
+  track_test_fold: true
   gradient_checkpointing: false   # turn on for max_length >= 1024
   num_workers: 0             # Windows spawn overhead; 4 physical cores
 

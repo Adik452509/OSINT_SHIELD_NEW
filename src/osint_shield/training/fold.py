@@ -270,9 +270,13 @@ def run_fold(data: PreparedData, test_fold: int, cfg: dict, *, seed: int, device
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
 
-    history = trainer.fit(data.dataset(train_idx), data.dataset(val_idx))
+    test_ds = data.dataset(test_idx)
+    # Optional per-epoch scoring of the test fold - recorded, never used for
+    # selection. Measures how well early stopping picks (docs/DECISIONS.md D11).
+    track = test_ds if cfg["training"].get("track_test_fold", False) else None
+    history = trainer.fit(data.dataset(train_idx), data.dataset(val_idx), track_ds=track)
 
-    probs = trainer.predict_proba(data.dataset(test_idx))
+    probs = trainer.predict_proba(test_ds)
     preds = {task: p.argmax(axis=-1) for task, p in probs.items()}
     targets = {task: frame[col].to_numpy()[test_idx] for task, col in TASK_COLUMNS.items()}
     metrics = score_multitask(targets, preds, has_body=frame["has_body"].to_numpy()[test_idx])

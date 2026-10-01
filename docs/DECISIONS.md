@@ -315,8 +315,58 @@ others are not.
 numbers (severity 0.596 against a 0.687 bar) are not an input: tuning against the outer test fold
 leaks it into model selection and inflates every later number.
 
+> **Superseded in part by D11:** `combined` originally averaged with severity **F1(High)**, which
+> an untrained all-High predictor games. It now averages with severity **macro**-F1.
+
 **Deliberately not changed yet.** Best epoch was the final epoch, with LR already decayed to zero —
 D8's revisit trigger. But the inner-val set is 47 rows, roughly one example per rare class, and its
 macro-F1 jumped 0.30 → 0.50 between the last two epochs; one run cannot separate undertraining
 from noise. M5 records best epoch across 15 runs. If most land at the ceiling, an LR/epoch sweep is
 M6's first job.
+
+---
+
+## D11 · M5 diagnosis: three defects before any bigger model — 2026-10-02
+
+**Trigger.** M5 put mmBERT-small **below** the TF-IDF bar on clean CV — narrative 5-class
+0.323–0.330 against 0.466, 0/5 folds won. The plan's rule (§5.1): *if the transformer does not
+clear TF-IDF, look for a bug before looking for a better model.* Three defects were found.
+
+**1. Wrong pooling for mmBERT.** mmBERT's own config ships `classifier_pooling: mean`; M5 used
+`cls`. Position 0 is `<bos>`, which masked-LM pretraining never trains as a sentence summary, and 2
+of every 3 ModernBERT layers use **local attention with a 128-token window** — so the `<bos>` vector
+mostly sees the first ~64 tokens of a 512-token article. The plan's diagram says `[CLS]`, and that
+was carried over without checking the model's design. **Fix:** `mmbert_small.yaml` → `pooling: mean`.
+XLM-R keeps `cls`: every layer there is global, and RoBERTa-family classifiers read `<s>` natively.
+
+**2. The D10 monitor was gameable.** `combined` averaged narrative macro-F1 with severity
+**F1(High)**. At ~30% prevalence, an untrained head that predicts *everything* High scores F1(High)
+≈ 0.46–0.55 on a 47-row inner-val set. Three of 30 runs restored such an untrained epoch-2/4
+checkpoint and scored at or below majority on the test fold (narrative 0.096, 0.171, 0.172).
+**Fix:** `combined` now uses severity **macro**-F1, where the all-High predictor scores ≈ 0.23.
+F1(High) remains the reported metric.
+
+**3. Selection on 47 rows is close to noise, and training is unstable.** Evidence:
+- One run peaked at inner-val narrative 0.645 and scored **0.245** on its test fold.
+- The same config and seed on the same fold scored **0.523** in M4 and **0.286** in M5. GPU kernels
+  are not bit-deterministic (epoch-1 loss 3.1885 vs 3.1845), and on ~335 rows that divergence grows
+  into a 0.24 swing — the known instability of small-data transformer fine-tuning.
+- Training loss reaches ~0 (as low as 0.007): the model memorises its fold; generalisation, not
+  capacity, is the constraint.
+
+**Fix (measurement first):** `training.track_test_fold: true` scores the test fold every epoch
+**for the record only** — after the selection decision, RNG-neutral, never read by it. The next run
+then reports selected vs final-epoch vs best-possible scores and a mean learning curve, which says
+whether to keep early stopping, switch to a fixed schedule, or enlarge the inner-val split.
+
+**The development-set rule, restated.** From here the 5-fold CV is used to *choose* the
+configuration, so its numbers become optimistic development estimates. That is exactly why
+`test.csv` was held out in D1: the honest number is the single final evaluation on it. M4's caution
+against tuning on a test fold applied while the CV was the evaluation; the role has now moved to
+`test.csv`, which stays untouched.
+
+**Keyword fusion is undecided, not refuted.** Paired over 15 runs: severity +0.024 (better in
+10/15), narrative 3-class −0.052 (5/15). The std of the paired differences is 0.13–0.17 —
+the instability is 5–10× the effect. One suggestive signal: pooled Investigation F1 **0.160 with
+keywords vs 0.000 without**, the rare class whose rubric terms (FIR, NIA, chargesheet) are most
+distinctive. Rerun once training is stable.

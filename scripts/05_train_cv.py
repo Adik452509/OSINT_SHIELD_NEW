@@ -52,6 +52,7 @@ from osint_shield.training.cv import (  # noqa: E402
     load_predictions,
     run_cv,
     runs_frame,
+    selection_analysis,
     summarise,
 )
 
@@ -169,11 +170,36 @@ def report(df_runs: pd.DataFrame, summary: dict, tfidf: dict, oof: pd.DataFrame,
     return md
 
 
-def compare_arms(model_short: str, mode: str) -> int:
+def print_selection(sel: dict | None, max_epochs: int) -> None:
+    """Report how well early stopping chose, from per-epoch test-fold tracking."""
+    if sel is None:
+        return
+    print(f"\n  checkpoint selection, measured on the test folds  ({sel['n_runs']} runs)")
+    print("  (diagnostic only - the CV is a development set now; test.csv stays held out)")
+    for key, label in [("narrative_macro_f1", "narrative 5-class"),
+                       ("severity_f1_high", "severity F1(High)")]:
+        s = sel[key]
+        print(f"    {label:<20} selected {s['selected']:.3f}   final epoch "
+              f"{s['final_epoch']:.3f}   best possible {s['oracle']:.3f}")
+    curve = sel["narrative_macro_f1"]["curve"]
+    n = sel["narrative_macro_f1"]["curve_n"]
+    print("    mean test narrative macro-F1 by epoch:")
+    print("      " + "  ".join(f"{e}:{v:.3f}" for e, v in curve.items()))
+    print("      runs reaching each epoch: " + " ".join(f"{e}:{n[e]}" for e in curve))
+    s = sel["narrative_macro_f1"]
+    if s["selected"] < s["final_epoch"] - 0.01:
+        print(f"{BAD}early stopping chose WORSE than simply taking the final epoch")
+    if s["oracle"] - s["selected"] > 0.05:
+        print(f"{INFO}selection leaves {s['oracle'] - s['selected']:.3f} on the table - "
+              "the 47-row inner-val signal is noisy")
+
+
+def compare_arms(model_short: str, mode: str, tag: str = "") -> int:
     """Keyword fusion vs no fusion: paired per (fold, seed), same folds, same seeds."""
+    suffix = f"_{tag}" if tag else ""
     frames = {}
     for arm in KEYWORD_ARMS:
-        path = RUNS_DIR / f"{model_short}_{mode}_kw-{arm}" / "cv.csv"
+        path = RUNS_DIR / f"{model_short}_{mode}_kw-{arm}{suffix}" / "cv.csv"
         if path.exists():
             frames[arm] = pd.read_csv(path)
     if len(frames) < 2:
@@ -219,23 +245,28 @@ def main() -> int:
                     help="retrain every run even if results exist")
     ap.add_argument("--compare", action="store_true",
                     help="compare completed keyword arms instead of training")
+    ap.add_argument("--tag", default="",
+                    help="suffix for the output folder, so a new configuration never "
+                         "overwrites or resumes into an earlier one (e.g. --tag v2)")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
     mode = args.mode or cfg["data"]["mode"]
     model_short = cfg["model"]["name"].split("/")[-1]
     if args.compare:
-        return compare_arms(model_short, mode)
+        return compare_arms(model_short, mode, args.tag)
 
     arm = args.keywords or (cfg["keywords"]["mode"] if cfg["keywords"]["enabled"] else "off")
     cfg["keywords"]["mode"] = arm
     cfg["keywords"]["enabled"] = arm != "off"
     seeds = args.seeds or cfg["seeds"]
     folds = args.folds or list(range(cfg["split"]["n_folds"]))
-    out_dir = RUNS_DIR / f"{model_short}_{mode}_kw-{arm}"
+    run_name = f"{model_short}_{mode}_kw-{arm}" + (f"_{args.tag}" if args.tag else "")
+    out_dir = RUNS_DIR / run_name
 
     print("=" * 86)
-    print(f"M5  {cfg['model']['name']}   mode={mode}   keywords={arm}")
+    print(f"M5  {cfg['model']['name']}   mode={mode}   keywords={arm}   "
+          f"pooling={cfg['model']['pooling']}" + (f"   tag={args.tag}" if args.tag else ""))
     print(f"    seeds {seeds}   folds {folds}   -> {len(seeds) * len(folds)} runs")
     print(f"    monitor {cfg['training']['monitor']}   epochs <= {cfg['training']['epochs']}   "
           f"lr {cfg['training']['lr']}   out {out_dir.relative_to(ROOT)}")
@@ -280,10 +311,13 @@ def main() -> int:
     oof = load_predictions(out_dir, [(s, f) for s in seeds for f in folds])
     tfidf = tfidf_per_fold(df, cfg)
     md = report(df_runs, summary, tfidf, oof, cfg)
+    selection = selection_analysis(results)
+    print_selection(selection, cfg["training"]["epochs"])
 
     df_runs.to_csv(out_dir / "cv.csv", index=False)
     oof.to_csv(out_dir / "oof.csv", index=False)
     summary["tfidf_per_fold"] = tfidf
+    summary["selection"] = selection
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2, default=str),
                                           encoding="utf-8")
     (out_dir / "report.md").write_text(

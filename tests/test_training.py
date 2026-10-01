@@ -183,11 +183,48 @@ def test_settings_reject_unknown_amp_dtype():
 
 
 def test_monitor_score():
-    m = {"narrative_macro_f1": 0.4, "severity_f1_high": 0.6}
+    m = {"narrative_macro_f1": 0.4, "severity_macro_f1": 0.6, "severity_f1_high": 0.9}
     assert monitor_score(m, "narrative_macro_f1") == pytest.approx(0.4)
-    assert monitor_score(m, "combined") == pytest.approx(0.5)
+    assert monitor_score(m, "combined") == pytest.approx(0.5)   # macro, not F1(High)
     with pytest.raises(ValueError):
         monitor_score(m, "val_loss")
+
+
+def test_combined_monitor_is_not_gamed_by_an_all_high_predictor():
+    """The M5 failure: an untrained head predicting all-High scored ~0.5 F1(High)
+    and won checkpoint selection. Severity macro-F1 must expose it."""
+    from osint_shield.evaluation.metrics import score_multitask
+
+    y_sev = np.array([1] * 3 + [0] * 7)                  # 30% High
+    y_narr = np.zeros(10, dtype=int)
+    degenerate = score_multitask({"narrative": y_narr, "severity": y_sev},
+                                 {"narrative": y_narr, "severity": np.ones(10, dtype=int)})
+    assert degenerate["severity_f1_high"] > 0.45          # looks respectable ...
+    assert degenerate["severity_macro_f1"] < 0.25         # ... and is exposed here
+
+
+def test_tracking_never_changes_checkpoint_selection():
+    """track_ds is scored for the record; selection must be identical without it."""
+    data = toy_data()
+
+    def fit(track: bool):
+        torch.manual_seed(0)
+        model = tiny_builder(None, data.n_keyword_features)
+        loss = MultiTaskLoss({t: torch.ones(n) for t, n in HEADS.items()},
+                             {"narrative": 1.0, "severity": 1.0, "propaganda": 0.3})
+        trainer = Trainer(model, loss, fast_settings(epochs=3, patience=2), CPU,
+                          pad_id=0, log=silent)
+        torch.manual_seed(1)
+        hist = trainer.fit(data.dataset(np.arange(40)), data.dataset(np.arange(40, 50)),
+                           track_ds=data.dataset(np.arange(50, 60)) if track else None)
+        return trainer.best_epoch, hist
+
+    best_with, hist_with = fit(True)
+    best_without, hist_without = fit(False)
+    assert best_with == best_without
+    assert "track_narrative_macro_f1" in hist_with[0]
+    assert "track_narrative_macro_f1" not in hist_without[0]
+    assert [h["monitor"] for h in hist_with] == pytest.approx([h["monitor"] for h in hist_without])
 
 
 # ---------------------------------------------------------------- inner split
