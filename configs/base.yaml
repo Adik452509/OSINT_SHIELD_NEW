@@ -102,10 +102,10 @@ training:
   # See docs/DECISIONS.md D8.
   epochs: 10
   # false = fixed schedule: no inner-val split, every non-test row trains, and
-  # the final epoch is kept. M5 found early stopping adds nothing on average
-  # (selected minus final: -0.005/-0.002 narrative over 30 runs) while costing
-  # 47 training rows. M6 ablation 1 tests switching it off.
-  early_stopping: true
+  # the final epoch is kept. Adopted in M6 (D13): it ties early stopping on
+  # score (+0.003 narrative, paired over 15 runs), uses 14% more data, and is
+  # the only recipe that works for the final all-data model in M9.
+  early_stopping: false
   patience: 3
   # Early epochs often sit at majority-class F1 while the randomly initialised
   # heads warm up. Without a floor, patience can fire before learning starts.

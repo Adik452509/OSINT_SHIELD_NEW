@@ -396,9 +396,45 @@ are not independent (three seeds share each fold).
 **Why keep it anyway.**
 1. **Consistent on the class the rubric targets most sharply.** Pooled Investigation F1 0.329 vs
    0.254 (v2) and 0.160 vs 0.000 (v1) — two configurations, same direction.
-2. **Possibly stabilising.** Seed spread on narrative 0.004 with keywords, 0.041 without.
+2. ~~**Possibly stabilising.** Seed spread on narrative 0.004 with keywords, 0.041 without.~~
+   **Withdrawn 2026-10-04:** the M6 fixed-schedule run, keywords on, has seed spread 0.035. The
+   0.004 was chance — three seed means per arm cannot support a claim about stability.
 3. **No measured cost** on any task, and it is the user's directive (D4).
 
 **How to report it.** "Keyword fusion was directionally positive — chiefly on the rare,
 lexically distinctive Investigation class — but the gain is within run-to-run variation at this
 corpus size." Not "keywords improve accuracy."
+
+---
+
+## D13 · Fixed training schedule, no early stopping — 2026-10-04
+
+**Decision.** `training.early_stopping: false`. No inner-validation split; every non-test row
+trains; 10 epochs; the final epoch is the model. The M6 run `m6-fixed` is the new reference for
+the remaining ablations.
+
+**Evidence** — paired against the early-stopping reference (`v2`), same 15 (fold, seed) pairs:
+
+| | early stopping | fixed 10 | Δ | runs better |
+|---|---|---|---|---|
+| narrative 5-class | 0.489 | 0.492 | +0.003 ± 0.076 | 7/15 |
+| narrative 3-class | 0.625 | 0.629 | +0.004 ± 0.057 | 9/15 |
+| severity F1(High) | 0.666 | 0.677 | +0.011 ± 0.045 | 9/15 |
+
+On score it is a tie. Against TF-IDF on the identical folds: narrative 5-class **+0.026, 4/5 folds
+— "beats the bar"** under the conservative rule, the first time; 3-class +0.025 (3/5); severity
+−0.010, level.
+
+**Why adopt it, given a tie.** The decisive reason is downstream: the final model in M9 trains on
+*all* labelled data, leaving nothing to early-stop on — only a fixed recipe works there, and this
+run shows the recipe costs nothing. It also returns 47 rows (14%) to training and removes a
+selection step that 30 tracked runs showed adds nothing on average.
+
+**The first unbiased learning curve.** Every run reached every epoch:
+0.211 / 0.289 / 0.410 / 0.509 / 0.506 / **0.519** / 0.501 / 0.482 / 0.489 / 0.492.
+Peak at epoch 6; epochs 7–10 give back ~0.027. Because the same 15 runs make every point, the
+within-run comparison is reasonably trustworthy — but a 6-epoch schedule decays LR faster, so
+`training.epochs=6` is its own ablation (queued, optional) rather than a reading of this curve.
+
+**Pooled 5-class F1:** Security 0.878, Political 0.595, Civilian **0.500** (best so far),
+Investigation 0.271, Other 0.286.

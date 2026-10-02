@@ -5,6 +5,29 @@ Running log. Newest first. See [DECISIONS.md](DECISIONS.md) for the reasoning be
 
 ---
 
+## 2026-10-04 — M6 · Ablations (in progress)
+
+Reference for every ablation: mmBERT-small, mean pooling, keywords on, frozen embeddings, sdpa.
+One variable changes per run; each is paired against its reference over the same 15 (fold, seed).
+
+**Tooling.** `--set section.key=value` overrides (typo'd keys are an error; `5e-5` parses as a
+float), `--vs BASE_TAG` paired comparison, `scripts/06_probe_vram.py` to measure a configuration's
+real memory need before a long run.
+
+| # | ablation | tag | result |
+|---|---|---|---|
+| 1 | fixed 10-epoch schedule vs early stopping | `m6-fixed` | **tie** (+0.003 / +0.004 / +0.011) → **adopted, D13**; new reference |
+| 2 | `max_length` 1024 vs 512 | `m6-1024` | ⏳ |
+| 3 | XLM-R bake-off | — | ⏳ |
+| opt | `epochs=6` · unfrozen embeddings · `per_keyword` · `markers` | — | optional |
+
+`m6-fixed` against TF-IDF: narrative 5-class 0.492 (+0.026, **4/5 — beats the bar**), 3-class
+0.629 (+0.025, 3/5), severity 0.677 (−0.010, level). Full learning curve peaks at epoch 6 (0.519).
+
+D12 corrected: the keyword-arm seed spread (0.004) did not replicate (0.035 here) — withdrawn.
+
+---
+
 ## 2026-10-02/03 — M5 · Full cross-validation ✅ — parity with TF-IDF after the D11 fixes
 
 ### Done

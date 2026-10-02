@@ -174,9 +174,19 @@ def report(df_runs: pd.DataFrame, summary: dict, tfidf: dict, oof: pd.DataFrame,
     return md
 
 
-def print_selection(sel: dict | None, max_epochs: int) -> None:
-    """Report how well early stopping chose, from per-epoch test-fold tracking."""
+def print_selection(sel: dict | None, max_epochs: int, early_stopping: bool = True) -> None:
+    """Report the test-fold learning curve, and how well early stopping chose."""
     if sel is None:
+        return
+    if not early_stopping:
+        curve = sel["narrative_macro_f1"]["curve"]
+        best_e = max(curve, key=curve.get)
+        print(f"\n  test-fold learning curve, fixed schedule  ({sel['n_runs']} runs, all epochs)")
+        print("  (diagnostic only - the CV is a development set now; test.csv stays held out)")
+        print("    mean test narrative macro-F1 by epoch:")
+        print("      " + "  ".join(f"{e}:{v:.3f}" for e, v in curve.items()))
+        print(f"    peak at epoch {best_e} ({curve[best_e]:.3f}); the kept final epoch scores "
+              f"{curve[max(curve)]:.3f}")
         return
     print(f"\n  checkpoint selection, measured on the test folds  ({sel['n_runs']} runs)")
     print("  (diagnostic only - the CV is a development set now; test.csv stays held out)")
@@ -358,7 +368,8 @@ def main() -> int:
     tfidf = tfidf_per_fold(df, cfg)
     md = report(df_runs, summary, tfidf, oof, cfg)
     selection = selection_analysis(results)
-    print_selection(selection, cfg["training"]["epochs"])
+    print_selection(selection, cfg["training"]["epochs"],
+                    cfg["training"].get("early_stopping", True))
 
     df_runs.to_csv(out_dir / "cv.csv", index=False)
     oof.to_csv(out_dir / "oof.csv", index=False)
