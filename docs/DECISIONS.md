@@ -550,3 +550,85 @@ they did not, with errors concentrated 2× on disagreed articles.
 3. **The held-out number is frozen.** No further changes are evaluated against `test.csv`.
 
 **Deployed model:** seed 42, `runs/m7/model_seed42/` — fixed in advance, not chosen by score.
+
+---
+
+## D17 · Headline-only articles: hybrid narrative, and confidence is not to be trusted — 2026-10-05
+
+**Decision.** For articles that arrive with no body:
+- **narrative** = the keyword rubric's label when any narrative rubric term appears in the
+  headline (34% of headlines), the encoder's label otherwise;
+- **severity** = the encoder;
+- these articles are **routed by type, not by confidence** (below).
+
+Articles with a body are unchanged: the encoder decides both tasks.
+
+**Evidence** — M7b, 415 development headline-only articles the bodied-only model never trained on;
+`test.csv` untouched. Rule pre-registered in PROGRESS.md: switch from the encoder only on paired
+bootstrap P ≥ 0.90.
+
+| narrative | 5-class | 3-class | P(beats encoder) |
+|---|---|---|---|
+| encoder | 0.209 | 0.348 | — |
+| TF-IDF | 0.177 | 0.296 | 0.01 |
+| rubric | 0.208 | 0.370 | 0.49 |
+| **hybrid** | **0.235** | **0.413** | **0.98** |
+
+Severity: encoder 0.217, rubric 0.240 (P 0.58 — does not qualify), TF-IDF 0.050.
+
+**Three findings beyond the routing choice.**
+
+1. **The small held-out sample misled; the rule protected us.** On the 65 held-out headline-only
+   articles the rubric scored 0.528 vs the encoder's 0.276. On 415 they are equal (0.208 vs
+   0.209). The earlier gap rested on 1 Investigation and 2 Other articles. Acting on it would
+   have deployed the wrong router.
+
+2. **Headline-only classification is barely possible with anything we have.** A majority-class
+   predictor scores ~0.18 on narrative 5-class here; the best method reaches 0.235, and TF-IDF
+   sits at the majority level. A headline carries too little signal, and these labels were
+   themselves assigned from the headline alone (annotator confidence 0.657). **The real remedy is
+   fetching the article body for Google-News items — an M10 engineering task, and the
+   highest-value one there.**
+
+3. **The encoder is over-confident precisely where it is least accurate.** Mean narrative
+   confidence is **0.872 on headline-only inputs versus 0.823 on bodied ones**; only 12% of
+   headline-only articles fall below the 0.70 escalation threshold. Short inputs collapse to a
+   confident "Security". The plan's confidence-based escalation (§6.2) would therefore let most
+   headline-only errors through unexamined — hence routing these articles **by type**: every
+   headline-only article carries a `headline_only` flag and `needs_review: true` regardless of
+   confidence.
+
+**Capacity finding for M10 (cross-reference).** On bodied held-out articles **56% would escalate** to the LLM (low
+confidence or predicted High), not the plan's ~25% estimate. With Llama 3.2 sharing a 6 GB GPU
+with the display, that is a throughput problem. The threshold must be calibrated against a
+measured budget in M9/M10, as plan §6.2 anticipates — using development data, never `test.csv`.
+
+---
+
+## D18 · Propaganda re-annotation protocol — 2026-10-05
+
+**Decisions (user, 2026-10-05).**
+1. **Own-voice rule.** An article is propaganda only if its own voice — headline, narration,
+   chosen framing — uses a technique. Reporting someone else's loaded rhetoric with attribution
+   does not count. Full definitions: `docs/PROPAGANDA_GUIDE.md`.
+2. **Review budget ≈ 100 articles**, reviewed by the user.
+
+**Why re-annotate rather than mine.** Inspecting the 7 original positives showed:
+- The rubric's propaganda terms reproduce those articles' phrases nearly verbatim ("brave sons",
+  "shield in crisis", "stall India's programs", "appeasement politics", "vote bank"). Keyword
+  recall of "5 of 7" (D3) is therefore **partly circular** — the list finds articles like the
+  seven, and is weak evidence about propaganda in general.
+- Three of seven rationales are a generic template ("Article contains justification elements in
+  its framing").
+- Two of seven are the same story (Bengal CM, Hindi and English) → six distinct positives.
+- Under the own-voice rule some originals may not qualify — so all seven are re-reviewed.
+
+**Protocol.**
+- **Screen** all 1,064 articles with Llama 3.2 using the guide's definitions (not keywords),
+  structured JSON output, temperature 0; evidence quotes are checked verbatim against the text.
+- **Review sheet (~100)** = the 7 originals + rubric hits with low-precision terms removed (17)
+  + the strongest Llama flags + a **random sample of unflagged articles** (to estimate how many
+  positives the screen misses).
+- **Blind review.** Rows are shuffled; the reviewer sees text only — not the source bucket, not
+  Llama's answer, not the original label. The key is kept in a separate file.
+- Positives that emerge are a new label set (`propaganda_v2`); the original column is kept.

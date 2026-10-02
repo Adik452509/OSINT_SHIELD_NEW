@@ -36,7 +36,46 @@ Google-News items that arrive without a body. Then M8–M11.
 
 ---
 
-## 2026-10-05 — M7b · Headline-only routing (pre-registered, not yet run)
+## 2026-10-05 — M8 · Propaganda re-annotation (in progress) → D18
+
+User chose roadmap order (M8 before M9/M10), the **own-voice rule**, and a **~100-article** review
+budget.
+
+| step | what | status |
+|---|---|---|
+| M8.1 | annotation guide — `docs/PROPAGANDA_GUIDE.md` | ✅ |
+| M8.2 | rubric candidates: 58 (all terms) / **17** (low-precision removed, 29% precision) | ✅ measured |
+| M8.3 | Llama screen of all 1,064 — `scripts/08_screen_propaganda.py`, `llm/client.py`, `llm/prompts.py` | ⏳ |
+| M8.4 | blind ~100-article review sheet, user labels | ⏳ |
+| M8.5 | score the screener, build `propaganda_v2`, retrain + measure | ⏳ |
+
+Finding that reshaped M8: the rubric's propaganda terms reproduce the 7 positives' own phrases
+("brave sons", "shield in crisis", "stall India's programs", "appeasement politics", "vote bank")
+→ D3's "keywords recover 5/7" was partly circular. Two of the seven are the same story.
+
+---
+
+## 2026-10-05 — M7b · Headline-only routing ✅ → D17
+
+`scripts/07c_headline_routing.py`, `src/osint_shield/inference/predict.py` (`Predictor`, reused by
+M9). n = 415 development headline-only articles, 0 dropped as training duplicates; Security 331,
+Political 59, Civilian 12, Other 9, Investigation 4; High 39 (9.4%).
+
+| narrative | 5-class | 3-class | P(beats encoder) |
+|---|---|---|---|
+| encoder | 0.209 | 0.348 | — |
+| TF-IDF | 0.177 | 0.296 | 0.01 |
+| rubric | 0.208 | 0.370 | 0.49 |
+| **hybrid** | **0.235** | **0.413** | **0.98** |
+
+Severity F1(High): encoder 0.217, rubric 0.240 (P 0.58), TF-IDF 0.050.
+
+**Decision (pre-registered rule): headline-only narrative → HYBRID; severity → ENCODER.**
+
+Encoder confidence on headline-only: mean **0.872** (bodied held-out 0.823), only 12% below 0.70.
+Would escalate: 25% headline-only, **56% bodied** — vs the plan's ~25% estimate.
+
+### Pre-registration (as written before the run)
 
 **Data.** Development-pool articles with no body (`folds_all.csv` minus bodied rows), excluding
 any whose duplicate group also appears in the 476 bodied training articles — a syndicated
