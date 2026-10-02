@@ -254,18 +254,23 @@ def run_fold(data: PreparedData, test_fold: int, cfg: dict, *, seed: int, device
     if len(test_idx) == 0:
         raise ValueError(f"fold {test_fold} has no rows")
 
-    split_cfg = cfg["split"]
-    strat = stratification_labels(frame.iloc[pool_idx], stratify_col=split_cfg["stratify_on"])
-    tr_pos, va_pos = inner_split(strat, frame["dupe_group"].to_numpy()[pool_idx],
-                                 cfg["training"].get("inner_val_size", 0.12), seed)
-    train_idx, val_idx = pool_idx[tr_pos], pool_idx[va_pos]
+    settings = settings or TrainSettings.from_config(cfg)
+    if settings.early_stopping:
+        strat = stratification_labels(frame.iloc[pool_idx],
+                                      stratify_col=cfg["split"]["stratify_on"])
+        tr_pos, va_pos = inner_split(strat, frame["dupe_group"].to_numpy()[pool_idx],
+                                     cfg["training"].get("inner_val_size", 0.12), seed)
+        train_idx, val_idx = pool_idx[tr_pos], pool_idx[va_pos]
+    else:
+        # Fixed schedule: nothing is held back to pick an epoch, so every
+        # non-test row trains and the final epoch is kept.
+        train_idx, val_idx = pool_idx, np.array([], dtype=int)
     assert_disjoint(frame, train_idx, val_idx, test_idx)
 
     weights = fold_class_weights(frame, train_idx, cfg)
     model = _build(cfg, data, train_idx, model_builder)
     loss_fn = MultiTaskLoss(weights, task_loss_weights(cfg))
-    trainer = Trainer(model, loss_fn, settings or TrainSettings.from_config(cfg),
-                      device, data.pad_id, log=log)
+    trainer = Trainer(model, loss_fn, settings, device, data.pad_id, log=log)
 
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
@@ -274,7 +279,9 @@ def run_fold(data: PreparedData, test_fold: int, cfg: dict, *, seed: int, device
     # Optional per-epoch scoring of the test fold - recorded, never used for
     # selection. Measures how well early stopping picks (docs/DECISIONS.md D11).
     track = test_ds if cfg["training"].get("track_test_fold", False) else None
-    history = trainer.fit(data.dataset(train_idx), data.dataset(val_idx), track_ds=track)
+    val_ds = data.dataset(val_idx) if len(val_idx) else None
+    history = trainer.fit(data.dataset(train_idx), val_ds, track_ds=track,
+                          early_stopping=settings.early_stopping)
 
     probs = trainer.predict_proba(test_ds)
     preds = {task: p.argmax(axis=-1) for task, p in probs.items()}

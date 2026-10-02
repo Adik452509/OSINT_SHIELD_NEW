@@ -322,6 +322,28 @@ def test_fold_summary_is_json_serialisable(fold_result):
     json.dumps(fold_result.summary(), default=str)
 
 
+def test_fixed_schedule_trains_on_every_non_test_row():
+    """early_stopping off: no inner-val split, all pool rows train, last epoch kept."""
+    data = toy_data()
+    res = run_fold(data, 0, load_config("base.yaml"), seed=0, device=CPU,
+                   model_builder=tiny_builder,
+                   settings=fast_settings(epochs=3, early_stopping=False), log=silent)
+    non_test = set(data.frame.loc[data.frame["fold"] != 0, "id"])
+    assert res.n_val == 0 and res.val_ids == []
+    assert set(res.train_ids) == non_test
+    assert len(res.history) == 3                  # never stops early
+    assert res.best_epoch == 3                    # the final epoch is the model
+    assert "monitor" not in res.history[0]        # nothing was monitored
+
+
+def test_fixed_schedule_still_tracks_the_test_fold():
+    cfg = load_config("base.yaml")
+    assert cfg["training"]["track_test_fold"] is True
+    res = run_fold(toy_data(), 1, cfg, seed=0, device=CPU, model_builder=tiny_builder,
+                   settings=fast_settings(epochs=2, early_stopping=False), log=silent)
+    assert all("track_narrative_macro_f1" in h for h in res.history)
+
+
 # ------------------------------------------------------------------- overfit
 def test_select_overfit_rows_covers_every_class():
     data = toy_data()

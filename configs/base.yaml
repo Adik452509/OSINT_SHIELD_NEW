@@ -101,6 +101,11 @@ training:
   # undertrained. 10 epochs with early stopping still guards against overfit.
   # See docs/DECISIONS.md D8.
   epochs: 10
+  # false = fixed schedule: no inner-val split, every non-test row trains, and
+  # the final epoch is kept. M5 found early stopping adds nothing on average
+  # (selected minus final: -0.005/-0.002 narrative over 30 runs) while costing
+  # 47 training rows. M6 ablation 1 tests switching it off.
+  early_stopping: true
   patience: 3
   # Early epochs often sit at majority-class F1 while the randomly initialised
   # heads warm up. Without a floor, patience can fire before learning starts.

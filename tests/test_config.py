@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from osint_shield.config import (
+    apply_overrides,
     collapse_map,
     deep_merge,
     load_config,
@@ -59,6 +60,41 @@ def test_model_configs_inherit_and_override(name, model, batch):
     assert cfg["training"]["epochs"] == 10
     assert cfg["split"]["n_folds"] == 5
     assert "extends" not in cfg
+
+
+def test_overrides_parse_typed_values():
+    cfg = load_config("base.yaml")
+    out = apply_overrides(cfg, ["training.early_stopping=false",
+                                "tokenizer.max_length=1024",
+                                "model.pooling=mean"])
+    assert out["training"]["early_stopping"] is False
+    assert out["tokenizer"]["max_length"] == 1024
+    assert out["model"]["pooling"] == "mean"
+    assert cfg["tokenizer"]["max_length"] == 512, "overrides must not mutate the input"
+
+
+@pytest.mark.parametrize("raw", ["5e-5", "5.0e-5", "5E-05"])
+def test_override_reads_scientific_notation_as_float(raw):
+    """Plain YAML would hand back the string '5e-5'."""
+    out = apply_overrides(load_config("base.yaml"), [f"training.lr={raw}"])
+    assert out["training"]["lr"] == pytest.approx(5e-5)
+    assert isinstance(out["training"]["lr"], float)
+
+
+def test_override_typo_is_an_error_not_a_silent_no_op():
+    """A misspelt key would otherwise run the reference config under an ablation's name."""
+    with pytest.raises(KeyError, match="early_stoping"):
+        apply_overrides(load_config("base.yaml"), ["training.early_stoping=false"])
+
+
+def test_override_cannot_descend_into_a_scalar():
+    with pytest.raises(KeyError):
+        apply_overrides(load_config("base.yaml"), ["seed.value=3"])
+
+
+def test_override_must_have_an_equals_sign():
+    with pytest.raises(ValueError, match="key=value"):
+        apply_overrides(load_config("base.yaml"), ["training.epochs"])
 
 
 def test_missing_config_raises():

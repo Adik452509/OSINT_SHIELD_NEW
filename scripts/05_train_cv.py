@@ -33,7 +33,7 @@ configure_environment()
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
-from osint_shield.config import load_config  # noqa: E402
+from osint_shield.config import apply_overrides, load_config  # noqa: E402
 from osint_shield.data.loaders import build_text, load_fold_frame  # noqa: E402
 from osint_shield.evaluation.baselines import cross_val_predict  # noqa: E402
 from osint_shield.evaluation.metrics import (  # noqa: E402
@@ -148,12 +148,16 @@ def report(df_runs: pd.DataFrame, summary: dict, tfidf: dict, oof: pd.DataFrame,
               f"seed means {s['seed_means']}")
 
     be = summary["best_epoch"]
-    print(f"\n  best epoch  distribution {be['distribution']}   median {be['median']:.0f}   "
-          f"at the {max_epochs}-epoch ceiling: {be['share_at_ceiling'] * 100:.0f}%")
-    if be["share_at_ceiling"] >= 0.5:
-        print(f"{BAD}most runs peaked at the final epoch - D8 trigger: M6 should sweep LR/epochs")
-    md += ["", f"Best epoch distribution {be['distribution']}, "
-               f"{be['share_at_ceiling'] * 100:.0f}% at the ceiling."]
+    if cfg["training"].get("early_stopping", True):
+        print(f"\n  best epoch  distribution {be['distribution']}   median {be['median']:.0f}   "
+              f"at the {max_epochs}-epoch ceiling: {be['share_at_ceiling'] * 100:.0f}%")
+        if be["share_at_ceiling"] >= 0.5:
+            print(f"{BAD}most runs peaked at the final epoch - D8 trigger: sweep LR/epochs")
+        md += ["", f"Best epoch distribution {be['distribution']}, "
+                   f"{be['share_at_ceiling'] * 100:.0f}% at the ceiling."]
+    else:
+        print(f"\n  fixed schedule: every run trained {max_epochs} epochs and kept the last")
+        md += ["", f"Fixed schedule: {max_epochs} epochs, final epoch kept."]
 
     # pooled error structure across every run
     t3, p3 = collapse_narrative(oof["true_narrative"]), collapse_narrative(oof["pred_narrative"])
@@ -194,6 +198,36 @@ def print_selection(sel: dict | None, max_epochs: int) -> None:
               "the 47-row inner-val signal is noisy")
 
 
+PAIRED_KEYS = [("narrative_macro_f1", "narrative 5-class"),
+               ("narrative_collapsed_macro_f1", "narrative 3-class"),
+               ("severity_f1_high", "severity F1(High)")]
+
+
+def paired_table(frames: dict[str, pd.DataFrame], baseline: str, title: str) -> None:
+    """Means per run set, then each set paired against ``baseline`` by (seed, fold)."""
+    width = max(14, max(len(k) for k in frames) + 2)
+    print("=" * 86)
+    print(f"  {title}")
+    print("=" * 86)
+    print(f"  {'run':<{width}}" + "".join(f"{label:>22}" for _, label in PAIRED_KEYS))
+    for name, df in frames.items():
+        cells = "".join(f"{df[k].mean():>14.3f} ± {df[k].std(ddof=0):.3f}"
+                        for k, _ in PAIRED_KEYS)
+        print(f"  {name:<{width}}{cells}")
+
+    base = frames[baseline].set_index(["seed", "fold"])
+    print(f"\n  paired against '{baseline}'  (same fold, same seed - one variable differs)")
+    for name, df in frames.items():
+        if name == baseline:
+            continue
+        joined = df.set_index(["seed", "fold"]).join(base, rsuffix="_base", how="inner")
+        print(f"  {name}  ({len(joined)} paired runs)")
+        for k, label in PAIRED_KEYS:
+            d = joined[k] - joined[f"{k}_base"]
+            print(f"    {label:<22} Δ {d.mean():+.3f} ± {d.std(ddof=0):.3f}   "
+                  f"better in {(d > 0).sum()}/{len(d)} runs")
+
+
 def compare_arms(model_short: str, mode: str, tag: str = "") -> int:
     """Keyword fusion vs no fusion: paired per (fold, seed), same folds, same seeds."""
     suffix = f"_{tag}" if tag else ""
@@ -202,33 +236,25 @@ def compare_arms(model_short: str, mode: str, tag: str = "") -> int:
         path = RUNS_DIR / f"{model_short}_{mode}_kw-{arm}{suffix}" / "cv.csv"
         if path.exists():
             frames[arm] = pd.read_csv(path)
-    if len(frames) < 2:
-        print(f"need at least two completed arms under {RUNS_DIR}; found {sorted(frames)}")
+    if len(frames) < 2 or "off" not in frames:
+        print(f"need the 'off' arm and at least one other under {RUNS_DIR}; "
+              f"found {sorted(frames)}")
         return 1
+    paired_table(frames, "off", f"keyword fusion arms - {model_short}, {mode}")
+    return 0
 
-    print("=" * 86)
-    print(f"  keyword fusion arms - {model_short}, {mode}")
-    print("=" * 86)
-    keys = [("narrative_macro_f1", "narrative 5-class"),
-            ("narrative_collapsed_macro_f1", "narrative 3-class"),
-            ("severity_f1_high", "severity F1(High)")]
-    print(f"  {'arm':<14}" + "".join(f"{label:>22}" for _, label in keys))
-    for arm, df in frames.items():
-        cells = "".join(f"{df[k].mean():>14.3f} ± {df[k].std(ddof=0):.3f}" for k, _ in keys)
-        print(f"  {arm:<14}{cells}")
 
-    if "off" in frames:
-        print("\n  paired against 'off'  (same fold, same seed - only the keyword arm differs)")
-        base = frames["off"].set_index(["seed", "fold"])
-        for arm, df in frames.items():
-            if arm == "off":
-                continue
-            joined = df.set_index(["seed", "fold"]).join(base, rsuffix="_off", how="inner")
-            print(f"  {arm}  ({len(joined)} paired runs)")
-            for k, label in keys:
-                d = joined[k] - joined[f"{k}_off"]
-                print(f"    {label:<22} Δ {d.mean():+.3f} ± {d.std(ddof=0):.3f}   "
-                      f"better in {(d > 0).sum()}/{len(d)} runs")
+def compare_tags(model_short: str, mode: str, arm: str, base_tag: str, tag: str) -> int:
+    """An ablation run against its reference run - the M6 comparison."""
+    frames = {}
+    for t in (base_tag, tag):
+        path = RUNS_DIR / f"{model_short}_{mode}_kw-{arm}_{t}" / "cv.csv"
+        if not path.exists():
+            print(f"missing {path.relative_to(ROOT)} - has that run finished?")
+            return 1
+        frames[t] = pd.read_csv(path)
+    paired_table(frames, base_tag, f"ablation '{tag}' vs reference '{base_tag}' - "
+                                   f"{model_short}, {mode}, keywords={arm}")
     return 0
 
 
@@ -248,15 +274,30 @@ def main() -> int:
     ap.add_argument("--tag", default="",
                     help="suffix for the output folder, so a new configuration never "
                          "overwrites or resumes into an earlier one (e.g. --tag v2)")
+    ap.add_argument("--set", dest="overrides", action="append", default=[],
+                    metavar="KEY=VALUE",
+                    help="override one config value, e.g. --set training.early_stopping=false "
+                         "(repeatable; unknown keys are an error)")
+    ap.add_argument("--vs", default=None, metavar="BASE_TAG",
+                    help="compare the run named by --tag against this reference tag")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
+    try:
+        cfg = apply_overrides(cfg, args.overrides)
+    except (KeyError, ValueError) as exc:
+        print(f"{BAD}{exc}")
+        return 1
     mode = args.mode or cfg["data"]["mode"]
     model_short = cfg["model"]["name"].split("/")[-1]
+    arm = args.keywords or (cfg["keywords"]["mode"] if cfg["keywords"]["enabled"] else "off")
     if args.compare:
         return compare_arms(model_short, mode, args.tag)
-
-    arm = args.keywords or (cfg["keywords"]["mode"] if cfg["keywords"]["enabled"] else "off")
+    if args.vs:
+        if not args.tag:
+            print(f"{BAD}--vs needs --tag to name the run being compared")
+            return 1
+        return compare_tags(model_short, mode, arm, args.vs, args.tag)
     cfg["keywords"]["mode"] = arm
     cfg["keywords"]["enabled"] = arm != "off"
     seeds = args.seeds or cfg["seeds"]
@@ -268,6 +309,11 @@ def main() -> int:
     print(f"M5  {cfg['model']['name']}   mode={mode}   keywords={arm}   "
           f"pooling={cfg['model']['pooling']}" + (f"   tag={args.tag}" if args.tag else ""))
     print(f"    seeds {seeds}   folds {folds}   -> {len(seeds) * len(folds)} runs")
+    if args.overrides:
+        print(f"    overrides: {'  '.join(args.overrides)}")
+    print(f"    early stopping {'on' if cfg['training'].get('early_stopping', True) else 'OFF (fixed schedule)'}"
+          f"   max_length {cfg['tokenizer']['max_length']}   "
+          f"embeddings {'frozen' if cfg['model'].get('freeze_embeddings') else 'trainable'}")
     print(f"    monitor {cfg['training']['monitor']}   epochs <= {cfg['training']['epochs']}   "
           f"lr {cfg['training']['lr']}   out {out_dir.relative_to(ROOT)}")
     print("=" * 86)

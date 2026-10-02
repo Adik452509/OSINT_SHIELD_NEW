@@ -15,6 +15,7 @@ and lists, so overriding ``training.batch_size`` leaves the rest of
 from __future__ import annotations
 
 import copy
+import re
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +71,53 @@ def load_config(name: str | Path, _depth: int = 0) -> dict[str, Any]:
 
     parent = load_config(parent_name, _depth=_depth + 1)
     return deep_merge(parent, cfg)
+
+
+def apply_overrides(cfg: dict[str, Any], overrides: list[str]) -> dict[str, Any]:
+    """Apply ``dotted.key=value`` overrides, returning a new config.
+
+    Values are parsed as YAML, so ``false``, ``1024`` and ``2.0e-5`` arrive as
+    a bool, an int and a float. Every key must already exist: a typo such as
+    ``training.early_stoping=false`` raises instead of silently running the
+    reference configuration under an ablation's name.
+
+        >>> apply_overrides(cfg, ["tokenizer.max_length=1024"])
+
+    Raises:
+        ValueError: an override is not of the form ``key=value``.
+        KeyError: the dotted path does not exist in ``cfg``.
+    """
+    out = copy.deepcopy(cfg)
+    for item in overrides:
+        if "=" not in item:
+            raise ValueError(f"override must look like section.key=value, got {item!r}")
+        path, raw = item.split("=", 1)
+        keys = path.strip().split(".")
+        node: Any = out
+        for depth, key in enumerate(keys):
+            if not isinstance(node, dict) or key not in node:
+                where = ".".join(keys[:depth]) or "<top level>"
+                raise KeyError(f"unknown config key {path!r}: no {key!r} under {where}")
+            if depth == len(keys) - 1:
+                node[key] = _parse_override_value(raw)
+            else:
+                node = node[key]
+    return out
+
+
+_SCI_NOTATION = re.compile(r"^[+-]?\d+(\.\d*)?[eE][+-]?\d+$")
+
+
+def _parse_override_value(raw: str) -> Any:
+    """YAML-parse a value, also accepting ``5e-5`` as a float.
+
+    YAML 1.1 only reads scientific notation with a decimal point (``5.0e-5``);
+    ``5e-5`` would otherwise arrive as the string ``"5e-5"``.
+    """
+    raw = raw.strip()
+    if _SCI_NOTATION.match(raw):
+        return float(raw)
+    return yaml.safe_load(raw)
 
 
 def load_taxonomy() -> dict[str, Any]:

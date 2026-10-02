@@ -32,6 +32,7 @@ class TrainSettings:
     """Hyperparameters for one training run. Read from ``cfg["training"]``."""
 
     epochs: int = 10
+    early_stopping: bool = True
     patience: int = 3
     min_epochs: int = 3
     monitor: str = "narrative_macro_f1"
