@@ -46,20 +46,36 @@ def test_base_config_loads():
 
 
 @pytest.mark.parametrize(
-    ("name", "model", "batch"),
+    ("name", "model", "batch", "epochs"),
     [
-        ("mmbert_small.yaml", "jhu-clsp/mmBERT-small", 8),
-        ("xlmr_base.yaml", "FacebookAI/xlm-roberta-base", 4),
+        # mmBERT overrides epochs to its own curve's peak (D15)
+        ("mmbert_small.yaml", "jhu-clsp/mmBERT-small", 8, 6),
+        # XLM-R inherits base.yaml's 10 - more bought nothing in M6
+        ("xlmr_base.yaml", "FacebookAI/xlm-roberta-base", 4, 10),
     ],
 )
-def test_model_configs_inherit_and_override(name, model, batch):
+def test_model_configs_inherit_and_override(name, model, batch, epochs):
     cfg = load_config(name)
     assert cfg["model"]["name"] == model
     assert cfg["training"]["batch_size"] == batch
-    # inherited from base.yaml, untouched by the override
-    assert cfg["training"]["epochs"] == 10
+    assert cfg["training"]["epochs"] == epochs
+    # inherited from base.yaml, untouched by either override
+    assert cfg["training"]["lr"] == pytest.approx(2e-5)
     assert cfg["split"]["n_folds"] == 5
     assert "extends" not in cfg
+
+
+def test_final_model_recipe_matches_d15():
+    """The configuration M7 trains must be exactly the one D15 records."""
+    cfg = load_config("mmbert_small.yaml")
+    assert cfg["model"]["pooling"] == "mean"
+    assert cfg["model"]["freeze_embeddings"] is True
+    assert cfg["model"]["attn_implementation"] == "sdpa"
+    assert cfg["tokenizer"]["max_length"] == 512
+    assert cfg["keywords"]["mode"] == "group_counts"
+    assert cfg["training"]["early_stopping"] is False
+    assert cfg["training"]["epochs"] == 6
+    assert cfg["data"]["mode"] == "body_only"
 
 
 def test_overrides_parse_typed_values():

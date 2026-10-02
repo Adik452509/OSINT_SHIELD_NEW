@@ -466,7 +466,53 @@ corpus, for either task.
 batch 4 × accumulation 4 against the reference's 8 × 2 — same effective batch of 16, but two
 settings differ.
 
-**Consequence for D4.** The case for keyword fusion leaned on reaching past the truncation point.
+**Consequence for D4 (cross-reference).** The case for keyword fusion leaned on reaching past the truncation point.
 Since the truncated tail turns out to carry little signal, keyword fusion's (small) value must
 come from somewhere else — most plausibly the explicit rubric prior on rare, lexically distinctive
 classes such as Investigation (D12).
+
+---
+
+## D15 · Final model: mmBERT-small, 6 epochs — 2026-10-05
+
+**Decision.** The model carried into M7 and beyond:
+
+| | |
+|---|---|
+| encoder | `jhu-clsp/mmBERT-small`, **mean pooling** (D11), SDPA attention, word embeddings **frozen** (D9) |
+| input | headline `<eos>` body, **512 tokens** (D14), dynamic padding, `body_only` training data (D2) |
+| keyword fusion | `group_counts`: 11 rubric-group counts, log1p, standardised on the training rows (D4, D12) |
+| heads | narrative 5-class · severity 2-class · propaganda 2-class at loss weight 0.3, positive weight capped 10× (D3) |
+| schedule | **fixed 6 epochs**, no early stopping (D13), AdamW lr 2e-5, 10% warmup then linear decay, weight decay 0.01, grad clip 1.0 |
+| batch | 8 × accumulation 2 (effective 16), bf16 autocast |
+
+**How it was chosen — a pre-registered rule.** Before any fair-round result existed, PROGRESS.md
+fixed the rule: a model wins the head-to-head if it leads narrative 5-class by > 0.02 (paired)
+and wins ≥ 9 of 15 paired runs; anything else is a tie resolved in favour of mmBERT-small
+(half the parameters, faster live inference on a display-shared GPU, the plan's primary candidate).
+
+**Fair round.** Round 1 ran both models at 10 epochs, a recipe tuned entirely on mmBERT. Each was
+then given the epoch count its own learning curve indicated:
+
+| paired, 15 runs | effect of the epoch change |
+|---|---|
+| mmBERT 10 → **6** | narrative **+0.032** (10/15), 3-class +0.017, severity +0.015 (10/15); std 0.089 → 0.058 |
+| XLM-R 10 → 15 | narrative +0.011 (8/15), 3-class +0.007, severity −0.022 (6/15) — no real gain |
+
+XLM-R's still-rising curve at epoch 10 was flattening; more epochs bought nothing.
+
+**Head-to-head** — XLM-R (15) minus mmBERT (6): narrative −0.004 (6/15), 3-class +0.003 (9/15),
+severity **−0.036 (3/15)**. Under the rule: a tie on narrative → mmBERT-small. Not a narrow call:
+mmBERT wins severity in **12 of 15** paired runs, the most consistent signal in the bake-off, and is
+steadier (narrative std 0.058 vs 0.093).
+
+**Against TF-IDF, identical folds:** narrative 5-class **0.524 vs 0.466, +0.057, 4/5 — beats the
+bar**; 3-class **0.646 vs 0.604, +0.042, 4/5 — beats the bar**; severity 0.692 vs 0.687, +0.005,
+3/5 — matches. The first configuration to clear the plan's §5.1 test on two tasks.
+
+**Winner's curse — stated before M7.** This recipe was selected from ~8 configurations scored on
+the same 5 folds, so 0.524 is an optimistically biased estimate. The held-out `test.csv` score in
+M7 is expected to land somewhat lower. That number, not this one, is the headline.
+
+**Kept for the write-up, not used:** XLM-R as the comparison model (plan §3.1 asks for it
+regardless of outcome); the 1024-token arm (D14); the early-stopping arm (D13).

@@ -19,7 +19,18 @@ real memory need before a long run.
 | 1 | fixed 10-epoch schedule vs early stopping | `m6-fixed` | **tie** (+0.003 / +0.004 / +0.011) → **adopted, D13**; new reference |
 | 2 | `max_length` 1024 vs 512 | `m6-1024` | **no reliable gain** (−0.014 / −0.017 / +0.011), 2× cost → **keep 512, D14** |
 | 3 | XLM-R bake-off, round 1 (both at 10 epochs) | `m6` (XLM-R) | **tie** — XLM-R +0.016 / +0.013 / +0.001, won 6 / 8 / 9 of 15 |
-| 3b | fair round: each model at its own curve's epoch count | `m6-e15` (XLM-R), `m6-e6` (mmBERT) | ⏳ running |
+| 3b | fair round: each model at its own curve's epoch count | `m6-e15` (XLM-R), `m6-e6` (mmBERT) | **mmBERT-small @ 6 epochs wins → D15** |
+
+**M6 ✅ complete (2026-10-05).** mmBERT 10→6 epochs: +0.032 / +0.017 / +0.015. XLM-R 10→15:
++0.011 / +0.007 / −0.022. Head-to-head XLM-R−mmBERT: −0.004 (6/15) / +0.003 (9/15) / **−0.036
+(3/15)** → tie on narrative under the pre-registered rule → mmBERT-small; it also wins severity
+12/15. Final recipe vs TF-IDF: narrative **0.524 (+0.057, 4/5, beats)**, 3-class **0.646 (+0.042,
+4/5, beats)**, severity 0.692 (+0.005, matches). Selected from ~8 configs on the same folds —
+expect the M7 held-out score to be lower (winner's curse).
+
+**Next: M7** — train the D15 recipe on all 476 CV articles (3 seeds, saved to disk), score once on
+the held-out `test.csv` (94 bodied + 65 headline-only, reported separately), TF-IDF on the same
+split, then error analysis against annotator disagreement.
 
 **Decision rule for 3b — fixed 2026-10-04, before any 3b result exists.** In the head-to-head
 (`m6-e15` vs `m6-e6`): a model **wins** if it leads narrative 5-class macro-F1 by **> 0.02**

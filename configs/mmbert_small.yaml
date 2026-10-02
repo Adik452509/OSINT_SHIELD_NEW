@@ -17,3 +17,7 @@ model:
 training:
   batch_size: 8
   grad_accum: 2
+  # Its own test-fold learning curve peaked at epoch 6. A 6-epoch schedule
+  # beat 10 on every task, paired over 15 runs (narrative +0.032, 10/15) and
+  # cut the run-to-run spread from 0.089 to 0.058. See docs/DECISIONS.md D15.
+  epochs: 6
