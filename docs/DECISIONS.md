@@ -370,3 +370,35 @@ against tuning on a test fold applied while the CV was the evaluation; the role 
 the instability is 5–10× the effect. One suggestive signal: pooled Investigation F1 **0.160 with
 keywords vs 0.000 without**, the rare class whose rubric terms (FIR, NIA, chargesheet) are most
 distinctive. Rerun once training is stable.
+
+**Outcome (v2 rerun, 2026-10-03).** With mean pooling and the macro-F1 monitor, the `off` arm moved
+from 0.330 to **0.472** narrative macro-F1 — level with TF-IDF (0.466). The monitor fix is bounded
+at ≈ +0.01 (it removed one collapsed run), so ≈ +0.13 is attributable to pooling. No run collapsed;
+best-epoch median 6, none at the ceiling.
+
+---
+
+## D12 · Keyword fusion stays on — directionally positive, not established — 2026-10-03
+
+**Decision.** `keywords.mode: group_counts` remains the default for M6 and beyond.
+
+**Evidence** (M5 v2, 15 paired runs — same fold, same seed, only the keyword arm differs):
+
+| | Δ (keywords − off) | runs won |
+|---|---|---|
+| narrative 5-class | +0.017 ± 0.072 | 10/15 |
+| narrative 3-class | +0.009 ± 0.061 | 10/15 |
+| severity F1(High) | +0.010 ± 0.069 | 5/15 |
+
+Not statistically established: a 10/15 split arises by chance ~30% of the time, and the 15 runs
+are not independent (three seeds share each fold).
+
+**Why keep it anyway.**
+1. **Consistent on the class the rubric targets most sharply.** Pooled Investigation F1 0.329 vs
+   0.254 (v2) and 0.160 vs 0.000 (v1) — two configurations, same direction.
+2. **Possibly stabilising.** Seed spread on narrative 0.004 with keywords, 0.041 without.
+3. **No measured cost** on any task, and it is the user's directive (D4).
+
+**How to report it.** "Keyword fusion was directionally positive — chiefly on the rare,
+lexically distinctive Investigation class — but the gain is within run-to-run variation at this
+corpus size." Not "keywords improve accuracy."

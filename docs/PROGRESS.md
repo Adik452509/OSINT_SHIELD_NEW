@@ -5,7 +5,7 @@ Running log. Newest first. See [DECISIONS.md](DECISIONS.md) for the reasoning be
 
 ---
 
-## 2026-10-02 — M5 · Full cross-validation — ❌ below the bar → diagnosis (D11)
+## 2026-10-02/03 — M5 · Full cross-validation ✅ — parity with TF-IDF after the D11 fixes
 
 ### Done
 
@@ -76,10 +76,47 @@ then overfits. Early stopping ≈ final epoch for narrative; helps severity slig
 47-row selection and returns those 47 rows (~14%) to training. Not applied yet — the keyword arm
 must run under the identical config to stay a valid paired comparison.
 
+### v2 — keyword arm (`group_counts`) and the paired comparison
+
+| task | **keywords on** | keywords off | TF-IDF | verdict (on) |
+|---|---|---|---|---|
+| narrative 5-class | **0.489 ± 0.073** | 0.472 | 0.466 | +0.023, 3/5 — inconclusive |
+| narrative 3-class | **0.625 ± 0.049** | 0.616 | 0.604 | +0.021, 3/5 — inconclusive |
+| severity F1(High) | **0.666 ± 0.042** | 0.656 | 0.687 | −0.021, 2/5 — inconclusive |
+| propaganda F1 | 0.000 | 0.067 | 0.000 | diagnostic |
+
+Paired, same fold and seed, 15 runs: narrative 5-class **+0.017 ± 0.072 (10/15)**, 3-class
++0.009 ± 0.061 (10/15), severity +0.010 ± 0.069 (5/15). A 10/15 sign split arises by chance
+~30% of the time, and the runs share folds, so the effect is **not statistically established**.
+
+Pooled 5-class F1, on / off: Security 0.852 / 0.858, Political 0.571 / 0.596, Civilian 0.412 /
+0.446, **Investigation 0.329 / 0.254**, Other 0.323 / 0.304.
+
+Seed spread, narrative: **0.004 with keywords vs 0.041 without** (seed means 0.488/0.485/0.495 vs
+0.520/0.419/0.477) — suggestive of stabilisation; three means per arm is thin evidence.
+
+Selection: narrative selected 0.489 / final 0.491 / best possible 0.561; severity selected
+**0.666 / final 0.684** / best possible 0.711.
+
+### M5 verdict
+
+- **The encoder reaches parity with TF-IDF, not a clear win.** On ~400 labelled training
+  articles with a 74.3% annotator ceiling, that is the honest result. The plan's projections
+  (3-class 0.78–0.85, severity 0.82–0.88) were optimistic, as M3 anticipated.
+- **Keyword fusion stays on** — D12.
+- **Early stopping adds nothing on average.** Selected minus final epoch across 30 tracked runs:
+  narrative −0.005 / −0.002, severity +0.025 / −0.018. It costs 47 training rows (12%) to pick an
+  epoch. A fixed schedule is M6's first candidate.
+- Remaining suspects for the severity gap: **truncation** (74.8% of inputs cut at 512 tokens;
+  TF-IDF reads every word; casualty evidence often sits deep in an article) and the lost 12% of
+  training rows.
+
 ### Next
 
-`python scripts/05_train_cv.py --tag v2` (keyword arm, same config), then
-`--compare --tag v2`. Original M5 results stay in `runs/m5/` for comparison.
+**M6 · Ablations and bake-off**, one variable at a time against this config (mmBERT-small,
+mean pooling, keywords on, `--tag v2` as the reference). Proposed order by expected value:
+fixed schedule → 1024 tokens (VRAM probe first) → XLM-R bake-off → optional arms
+(unfrozen embeddings, `per_keyword`, `markers`).
 
 ---
 
