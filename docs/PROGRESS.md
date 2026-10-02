@@ -36,6 +36,29 @@ Google-News items that arrive without a body. Then M8–M11.
 
 ---
 
+## 2026-10-05 — M7b · Headline-only routing (pre-registered, not yet run)
+
+**Data.** Development-pool articles with no body (`folds_all.csv` minus bodied rows), excluding
+any whose duplicate group also appears in the 476 bodied training articles — a syndicated
+headline of a story the model trained on would inflate its score. `test.csv` is not used.
+
+**Candidates, fixed now.** Narrative: deployed encoder (seed 42) · TF-IDF (fit on the 476) ·
+keyword rubric · *hybrid* = rubric where any narrative keyword fires, encoder otherwise.
+Severity: encoder · TF-IDF · rubric.
+
+**Decision rule, fixed 2026-10-05 before any M7b result exists.** The encoder is the default for
+every article. For headline-only articles, a task switches to an alternative only if that
+alternative beats the encoder with paired-bootstrap **P ≥ 0.90** on the primary metric —
+narrative 5-class macro-F1 (and not worse on 3-class at the point estimate) / severity F1(High).
+If several qualify, the highest point estimate wins. Otherwise the encoder stays: one model is
+simpler to run and maintain.
+
+**Caveat, stated in advance.** Headline-only labels were themselves assigned from the headline
+alone (mean annotator confidence 0.657 vs 0.828 with a body), so every method should score lower
+here than on bodied articles.
+
+---
+
 ## 2026-10-04 — M6 · Ablations ✅
 
 Reference for every ablation: mmBERT-small, mean pooling, keywords on, frozen embeddings, sdpa.
