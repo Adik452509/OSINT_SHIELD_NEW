@@ -42,10 +42,44 @@ Fixed: mean pooling for mmBERT, `combined` monitor on severity macro-F1, per-epo
 tracking (record only) to measure selection quality. The CV is now a development set; `test.csv`
 stays held out for the final number.
 
+### v2 — after the D11 fixes (`off` arm, 2026-10-03)
+
+| task | M5 (`cls`) | **v2 (`mean`)** | TF-IDF | verdict |
+|---|---|---|---|---|
+| narrative 5-class | 0.330 | **0.472 ± 0.080** | 0.466 | matches the bar, 3/5 |
+| narrative 3-class | 0.534 | **0.616 ± 0.061** | 0.604 | matches the bar, 3/5 |
+| severity F1(High) | 0.598 | **0.656 ± 0.047** | 0.687 | inconclusive, 2/5 |
+| propaganda F1 | 0.000 | 0.067 ± 0.249 | 0.000 | diagnostic — 1 of 15 runs caught its positive |
+
+Pooled 5-class F1: Security 0.858, Political 0.596, Civilian **0.446** (was 0.312),
+Investigation **0.254** (was 0.000), Other **0.304** (was 0.062).
+
+**Attribution.** Both fixes landed together, but the monitor fix is bounded: it removed the one
+collapsed run (0.172); excluding that run, the old arm averaged 0.341. So ≈ +0.01 is the monitor
+and ≈ +0.13 is mean pooling.
+
+No collapsed runs (worst 0.330, was 0.096). Seed spread 0.041, fold spread 0.053. Best epoch
+median 6, 0% at the ceiling — D8's undertraining worry is ruled out.
+
+**Selection quality** (test fold tracked per epoch, record only):
+
+| | selected | final epoch | best possible |
+|---|---|---|---|
+| narrative 5-class | 0.472 | 0.477 | 0.546 |
+| severity F1(High) | 0.656 | 0.631 | 0.689 |
+
+Mean test-fold narrative by epoch: 0.185 / 0.278 / 0.434 / 0.468 / **0.492 / 0.490 / 0.488** /
+0.458 / 0.459 / 0.448 (epochs 8–10 average 11 / 8 / 4 runs — survivorship bias). Peaks at 5–7,
+then overfits. Early stopping ≈ final epoch for narrative; helps severity slightly.
+
+**Candidate for M6:** a fixed ~6-epoch schedule with no early stopping. It removes the noisy
+47-row selection and returns those 47 rows (~14%) to training. Not applied yet — the keyword arm
+must run under the identical config to stay a valid paired comparison.
+
 ### Next
 
-Rerun under `--tag v2`: the `off` arm first (does the encoder clear the bar once fixed?), then
-`group_counts`, then `--compare --tag v2`. Original M5 results stay in `runs/m5/` for comparison.
+`python scripts/05_train_cv.py --tag v2` (keyword arm, same config), then
+`--compare --tag v2`. Original M5 results stay in `runs/m5/` for comparison.
 
 ---
 
