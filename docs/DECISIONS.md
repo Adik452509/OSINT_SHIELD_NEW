@@ -516,3 +516,37 @@ M7 is expected to land somewhat lower. That number, not this one, is the headlin
 
 **Kept for the write-up, not used:** XLM-R as the comparison model (plan §3.1 asks for it
 regardless of outcome); the 1024-token arm (D14); the early-stopping arm (D13).
+
+---
+
+## D16 · The held-out result, and what it decides — 2026-10-05
+
+**The result** (full tables: `docs/FINAL_RESULTS.md`). D15 recipe trained on all 476 development
+articles, scored once on the held-out set, 3 seeds:
+
+| bodied held-out, n = 94 | encoder | TF-IDF | rubric | CV estimate |
+|---|---|---|---|---|
+| narrative 5-class | 0.415 ± 0.014 | 0.449 | 0.385 | 0.524 |
+| narrative 3-class | 0.602 ± 0.039 | 0.673 | 0.513 | 0.646 |
+| severity F1(High) | 0.664 ± 0.045 | 0.656 | 0.730 | 0.692 |
+
+Paired bootstrap, encoder − TF-IDF: −0.023 [−0.181, +0.053], −0.040 [−0.133, +0.064],
++0.039 [−0.087, +0.171]. **Statistically indistinguishable.**
+
+**The research conclusion.** On ~500 labelled articles with 74.3% inter-annotator agreement, a
+fine-tuned 42 M-parameter multilingual encoder matches but does not beat a TF-IDF linear model.
+The binding constraint is label quality: 85.3% accuracy where both annotators agreed, 50.0% where
+they did not, with errors concentrated 2× on disagreed articles.
+
+**What it decides for the system.**
+1. **The encoder stays the deployed classifier.** At equal accuracy it is the only option that
+   (a) covers Hindi and Kannada — TF-IDF knows only the English vocabulary it was fit on — and
+   (b) emits the per-class confidence the plan's escalation rule (§6.2) routes on.
+2. **Headline-only routing is an open question, and it is answered on development data, not
+   test data.** The 65 held-out headline-only articles hint the rubric is stronger there (0.528
+   vs 0.276 narrative) but are too few to decide (CI [−0.41, +0.14]). The ~415 headline-only
+   articles in the development pool were never used to train the body-only model, so they give a
+   6× larger, test-clean evaluation set → M7b.
+3. **The held-out number is frozen.** No further changes are evaluated against `test.csv`.
+
+**Deployed model:** seed 42, `runs/m7/model_seed42/` — fixed in advance, not chosen by score.

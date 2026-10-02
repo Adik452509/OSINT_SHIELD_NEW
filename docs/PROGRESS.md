@@ -5,7 +5,38 @@ Running log. Newest first. See [DECISIONS.md](DECISIONS.md) for the reasoning be
 
 ---
 
-## 2026-10-04 — M6 · Ablations (in progress)
+## 2026-10-05 — M7 · Final model + held-out evaluation ✅
+
+### Done
+
+`src/osint_shield/training/final.py` (train on all, save, reload), `scripts/07_final_eval.py`
+(runs once; reprints thereafter; `--force` warns), `scripts/07b_holdout_ci.py` (paired bootstrap
+on saved predictions). Deployed model saved: `runs/m7/model_seed42/` (seed fixed in advance).
+Fixed before scoring and committed first (`0223f08`): headline = 3-seed mean on bodied; deployed =
+seed 42; headline-only fed as plain headline and reported separately.
+
+### Result — `docs/FINAL_RESULTS.md`, D16
+
+Bodied held-out (n = 94): narrative 5-class **0.415 ± 0.014**, 3-class **0.602 ± 0.039**,
+severity F1(High) **0.664 ± 0.045**. TF-IDF 0.449 / 0.673 / 0.656; rubric 0.385 / 0.513 / 0.730.
+Encoder − TF-IDF paired 95% CIs all include zero → **statistically indistinguishable**. CV
+advantage did not replicate (−0.109 vs CV estimate: winner's curse plus 4 rare-class articles).
+
+Error analysis: 85.3% accuracy where annotators agreed vs 50.0% where they disagreed; 56% of
+errors on disagreed articles (base rate 28%). **Label ambiguity is the binding constraint.**
+
+Headline-only (n = 65): rubric 0.528 vs encoder 0.276 narrative, but CI [−0.41, +0.14] — too few
+rare-class articles to decide.
+
+### Next
+
+**M7b · headline-only routing study** on the ~415 development headline-only articles the
+body-only model never trained on — test-clean, 6× larger. Decides how M10's live pipeline handles
+Google-News items that arrive without a body. Then M8–M11.
+
+---
+
+## 2026-10-04 — M6 · Ablations ✅
 
 Reference for every ablation: mmBERT-small, mean pooling, keywords on, frozen embeddings, sdpa.
 One variable changes per run; each is paired against its reference over the same 15 (fold, seed).
