@@ -18,7 +18,17 @@ real memory need before a long run.
 |---|---|---|---|
 | 1 | fixed 10-epoch schedule vs early stopping | `m6-fixed` | **tie** (+0.003 / +0.004 / +0.011) → **adopted, D13**; new reference |
 | 2 | `max_length` 1024 vs 512 | `m6-1024` | **no reliable gain** (−0.014 / −0.017 / +0.011), 2× cost → **keep 512, D14** |
-| 3 | XLM-R bake-off | — | ⏳ |
+| 3 | XLM-R bake-off, round 1 (both at 10 epochs) | `m6` (XLM-R) | **tie** — XLM-R +0.016 / +0.013 / +0.001, won 6 / 8 / 9 of 15 |
+| 3b | fair round: each model at its own curve's epoch count | `m6-e15` (XLM-R), `m6-e6` (mmBERT) | ⏳ pending user choice |
+
+**Bake-off round 1 notes.** XLM-R: narrative 0.508 ± 0.101, 3-class 0.642, severity 0.678; vs TF-IDF
++0.042 / +0.038 / −0.009. Best rare-class scores so far (Investigation 0.355, Other 0.326). 81.7%
+truncated at 512 (its tokenizer fragments more); 86.0 M trainable; 44 min; peak VRAM 3.06 GB.
+
+The 10-epoch recipe is not neutral between the two. mmBERT's test curve peaks at epoch 6 and its
+training loss is ~0.05 by epoch 10 (memorised); XLM-R's curve is still rising at epoch 10
+(0.472 → 0.481 → 0.502 → 0.504 → 0.508) with training loss ~0.65. Every setting so far was tuned
+on mmBERT, so round 1 measures each model under a recipe that suits neither — hence round 3b.
 | opt | `epochs=6` · unfrozen embeddings · `per_keyword` · `markers` | — | optional |
 
 `m6-fixed` against TF-IDF: narrative 5-class 0.492 (+0.026, **4/5 — beats the bar**), 3-class
