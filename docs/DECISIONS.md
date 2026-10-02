@@ -438,3 +438,35 @@ within-run comparison is reasonably trustworthy — but a 6-epoch schedule decay
 
 **Pooled 5-class F1:** Security 0.878, Political 0.595, Civilian **0.500** (best so far),
 Investigation 0.271, Other 0.286.
+
+---
+
+## D14 · Keep `max_length` 512 — truncation is measured, not assumed — 2026-10-04
+
+**Decision.** `tokenizer.max_length: 512` stays.
+
+**Evidence** — `m6-1024` paired against `m6-fixed`, same 15 (fold, seed). Truncated inputs fall
+from **74.8% to 29.8%**:
+
+| | 512 | 1024 | Δ | runs better |
+|---|---|---|---|---|
+| narrative 5-class | 0.492 | 0.478 | −0.014 ± 0.101 | 6/15 |
+| narrative 3-class | 0.629 | 0.612 | −0.017 ± 0.053 | 5/15 |
+| severity F1(High) | 0.677 | 0.688 | +0.011 ± 0.037 | 10/15 |
+
+**Why.** No reliable gain on any task; severity moves the predicted way but within noise. Training
+time doubles (69.9 vs 35.2 min) and so would live inference latency.
+
+**This answers a question the plan posed.** §2.3: news follows the inverted-pyramid convention,
+so "truncation is defensible — but it should be an ablation result rather than an assumption."
+It now is: **at 512 tokens the cut tail carries no measurable classification signal** on this
+corpus, for either task.
+
+**Confound to state.** Batch 8 at 1024 left 0.34 GB free (`06_probe_vram.py`), so this arm ran
+batch 4 × accumulation 4 against the reference's 8 × 2 — same effective batch of 16, but two
+settings differ.
+
+**Consequence for D4.** The case for keyword fusion leaned on reaching past the truncation point.
+Since the truncated tail turns out to carry little signal, keyword fusion's (small) value must
+come from somewhere else — most plausibly the explicit rubric prior on rare, lexically distinctive
+classes such as Investigation (D12).

@@ -17,7 +17,7 @@ real memory need before a long run.
 | # | ablation | tag | result |
 |---|---|---|---|
 | 1 | fixed 10-epoch schedule vs early stopping | `m6-fixed` | **tie** (+0.003 / +0.004 / +0.011) → **adopted, D13**; new reference |
-| 2 | `max_length` 1024 vs 512 | `m6-1024` | ⏳ |
+| 2 | `max_length` 1024 vs 512 | `m6-1024` | **no reliable gain** (−0.014 / −0.017 / +0.011), 2× cost → **keep 512, D14** |
 | 3 | XLM-R bake-off | — | ⏳ |
 | opt | `epochs=6` · unfrozen embeddings · `per_keyword` · `markers` | — | optional |
 

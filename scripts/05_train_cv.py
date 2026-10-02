@@ -254,17 +254,25 @@ def compare_arms(model_short: str, mode: str, tag: str = "") -> int:
     return 0
 
 
-def compare_tags(model_short: str, mode: str, arm: str, base_tag: str, tag: str) -> int:
-    """An ablation run against its reference run - the M6 comparison."""
+def compare_tags(model_short: str, mode: str, arm: str, base: str, tag: str) -> int:
+    """An ablation run against its reference run - the M6 comparison.
+
+    ``base`` is either a tag of the same model/mode/arm, or the full folder
+    name of any run under ``runs/m5`` - which is how a different model (the
+    XLM-R bake-off) is paired against the mmBERT reference.
+    """
+    this = RUNS_DIR / f"{model_short}_{mode}_kw-{arm}_{tag}"
+    base_dir = RUNS_DIR / base
+    if not (base_dir / "cv.csv").exists():
+        base_dir = RUNS_DIR / f"{model_short}_{mode}_kw-{arm}_{base}"
     frames = {}
-    for t in (base_tag, tag):
-        path = RUNS_DIR / f"{model_short}_{mode}_kw-{arm}_{t}" / "cv.csv"
+    for label, folder in ((base, base_dir), (f"{model_short} {tag}", this)):
+        path = folder / "cv.csv"
         if not path.exists():
             print(f"missing {path.relative_to(ROOT)} - has that run finished?")
             return 1
-        frames[t] = pd.read_csv(path)
-    paired_table(frames, base_tag, f"ablation '{tag}' vs reference '{base_tag}' - "
-                                   f"{model_short}, {mode}, keywords={arm}")
+        frames[label] = pd.read_csv(path)
+    paired_table(frames, base, f"'{model_short} {tag}' vs reference '{base}' - {mode}")
     return 0
 
 
@@ -288,8 +296,9 @@ def main() -> int:
                     metavar="KEY=VALUE",
                     help="override one config value, e.g. --set training.early_stopping=false "
                          "(repeatable; unknown keys are an error)")
-    ap.add_argument("--vs", default=None, metavar="BASE_TAG",
-                    help="compare the run named by --tag against this reference tag")
+    ap.add_argument("--vs", default=None, metavar="BASE",
+                    help="compare the run named by --tag against a reference: a tag of the "
+                         "same model, or the full folder name of any run under runs/m5")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
