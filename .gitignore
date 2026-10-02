@@ -21,6 +21,7 @@ results/
 *.ckpt
 *.safetensors
 *.bin
+*.pt
 wandb/
 mlruns/
 

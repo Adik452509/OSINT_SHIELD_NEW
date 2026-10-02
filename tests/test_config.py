@@ -97,6 +97,11 @@ def test_override_reads_scientific_notation_as_float(raw):
     assert isinstance(out["training"]["lr"], float)
 
 
+def test_override_with_empty_value_is_an_empty_string_not_null():
+    out = apply_overrides(load_config("base.yaml"), ["data.no_body_marker="])
+    assert out["data"]["no_body_marker"] == ""
+
+
 def test_override_typo_is_an_error_not_a_silent_no_op():
     """A misspelt key would otherwise run the reference config under an ablation's name."""
     with pytest.raises(KeyError, match="early_stoping"):

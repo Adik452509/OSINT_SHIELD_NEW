@@ -115,6 +115,8 @@ def _parse_override_value(raw: str) -> Any:
     ``5e-5`` would otherwise arrive as the string ``"5e-5"``.
     """
     raw = raw.strip()
+    if raw == "":
+        return ""      # `key=` means an empty string; YAML would read it as null
     if _SCI_NOTATION.match(raw):
         return float(raw)
     return yaml.safe_load(raw)
