@@ -19,7 +19,13 @@ real memory need before a long run.
 | 1 | fixed 10-epoch schedule vs early stopping | `m6-fixed` | **tie** (+0.003 / +0.004 / +0.011) → **adopted, D13**; new reference |
 | 2 | `max_length` 1024 vs 512 | `m6-1024` | **no reliable gain** (−0.014 / −0.017 / +0.011), 2× cost → **keep 512, D14** |
 | 3 | XLM-R bake-off, round 1 (both at 10 epochs) | `m6` (XLM-R) | **tie** — XLM-R +0.016 / +0.013 / +0.001, won 6 / 8 / 9 of 15 |
-| 3b | fair round: each model at its own curve's epoch count | `m6-e15` (XLM-R), `m6-e6` (mmBERT) | ⏳ pending user choice |
+| 3b | fair round: each model at its own curve's epoch count | `m6-e15` (XLM-R), `m6-e6` (mmBERT) | ⏳ running |
+
+**Decision rule for 3b — fixed 2026-10-04, before any 3b result exists.** In the head-to-head
+(`m6-e15` vs `m6-e6`): a model **wins** if it leads narrative 5-class macro-F1 by **> 0.02**
+(paired mean) **and** wins **≥ 9 of 15** paired runs. Anything else is a **tie, resolved in favour
+of mmBERT-small** — half the parameters (faster live inference on a GPU shared with the display)
+and the plan's primary candidate.
 
 **Bake-off round 1 notes.** XLM-R: narrative 0.508 ± 0.101, 3-class 0.642, severity 0.678; vs TF-IDF
 +0.042 / +0.038 / −0.009. Best rare-class scores so far (Investigation 0.355, Other 0.326). 81.7%
