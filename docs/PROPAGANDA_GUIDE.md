@@ -37,6 +37,12 @@ triumphal framing.
 - **No:** factual casualty reports; an official's tribute that is clearly attributed; ceremonial
   events described plainly ("wreaths were laid at the memorial").
 
+> **The word "martyred" (decided 2026-10-07).** In Indian news, "martyred" / "martyr" is the
+> standard term for a soldier killed in action. **On its own it is not glorification.**
+> *"Names of soldiers martyred during Operation Sindoor made public"* → **No**.
+> It counts only together with further heroic framing in the article's own voice:
+> *"Our immortal martyrs made the supreme sacrifice for the motherland"* → **Yes**.
+
 ### 2 · Justification
 The article's own voice uses loaded or one-sided framing to **justify a position or delegitimise
 an opponent**: scapegoating, conspiracy framing, partisan slurs presented as fact, emotionally

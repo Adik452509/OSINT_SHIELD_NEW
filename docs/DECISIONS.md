@@ -648,6 +648,44 @@ measured budget in M9/M10, as plan §6.2 anticipates — using development data,
 - **Caveat on blindness:** the 19 calibration articles, and the expectations stated for some of
   them, have been seen by the reviewer. They are reviewed with the rest but marked not-blind, and
   M8.5 reports results with and without them.
+
+---
+
+## D19 · The LLM screener is dropped; the review sheet is rubric + random sample — 2026-10-07
+
+**Decision.** No LLM screens the corpus. The ~100-article review sheet is: the 7 original
+positives + every article any rubric propaganda term fires on + a seeded random sample of the
+rest, filling the budget.
+
+**Evidence — v3 calibration on 19 articles, scored against criteria stated before the run.**
+
+| criterion | llama3.2:3b | qwen2.5-coder:7b |
+|---|---|---|
+| flags some, not all | ✗ 17/19 | ✗ 14/19 |
+| attributed-quote headlines → `quote`/`no` (Trump "cancer", "…: BJP", "says Venugopal", "Congress said") | ✗ 1 of 4 | ✗ 0 of 4 |
+| strength varies | {1: 3, 2: 14} | ✗ {2: 14} |
+| evidence found verbatim | 76% | 86% |
+| time per article | 2.2 s | 7.6 s (~2.2 h for the corpus) |
+
+Qwen judges plain content better — it rejected neutral reports (Centre releases names; Annapurna
+Bhandar; the Vietnam graft case) and the attributed English Bengal-CM article — but **neither
+model can determine who is speaking**, which is the whole of the own-voice rule: Qwen never once
+answered `quoted_only: true`, including for "Congress said - …". With strength constant there is
+no ranking signal, so neither could cut 1,064 articles to a 100-article budget.
+
+**Finding for the write-up.** Across three prompt designs (always-no, always-yes, few-shot with
+an attribution field enforced in code), local 3B and 7B models could not apply an attribution
+rule. Small open models fill structured-output schemas without performing the judgement the
+schema encodes — the decision was moved into code precisely because of this, and it still could
+not work without a reliable attribution signal.
+
+**Guide clarification (user, 2026-10-07).** Bare "martyred" — the standard Indian-news term for a
+soldier killed in action — is **not** glorification by itself; only with further heroic framing in
+the article's own voice. Both LLMs and the rubric treated it as glorification every time.
+
+**What the sheet now measures instead.** Rubric precision (reviewer labels on its ~58 hits), and
+— from the random sample — how much propaganda the rubric misses, which the LLM screen was meant
+to provide.
 - **Review sheet (~100)** = the 7 originals + rubric hits with low-precision terms removed (17)
   + the strongest Llama flags + a **random sample of unflagged articles** (to estimate how many
   positives the screen misses).
