@@ -31,7 +31,7 @@ def test_prompt_carries_the_article():
 def test_prompt_truncates_long_bodies_on_a_word_boundary():
     body = "word " * 2000
     p = propaganda_prompt("H", body, max_chars=100)
-    article = p.split("ARTICLE:")[1]
+    article = p.split("ARTICLE:")[-1]      # the last one - the few-shot examples come first
     assert len(article) < 130
     assert article.rstrip().endswith("...")
 
