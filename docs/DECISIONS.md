@@ -626,6 +626,14 @@ measured budget in M9/M10, as plan §6.2 anticipates — using development data,
 **Protocol.**
 - **Screen** all 1,064 articles with Llama 3.2 using the guide's definitions (not keywords),
   structured JSON output, temperature 0; evidence quotes are checked verbatim against the text.
+- **The screener is recall-oriented; the reviewer is the precision filter.** Prompt v1 carried
+  the human rule "when unsure, answer no" — and Llama answered `false / 0 / ""` on all of the
+  first 20 articles in 0.7 s each: the cheapest valid output, not a judgement. v2 flags
+  borderline cases as strength 1 and generates a short `analysis` field *before* the verdict
+  (Ollama emits fields in schema order, so the model reasons before committing). Every answer
+  is tagged with its prompt version; a resume never mixes two prompts.
+- **Calibrate before the full run** on the 7 originals plus the strict-rubric hits — articles
+  where a working screener must say yes to at least some.
 - **Review sheet (~100)** = the 7 originals + rubric hits with low-precision terms removed (17)
   + the strongest Llama flags + a **random sample of unflagged articles** (to estimate how many
   positives the screen misses).

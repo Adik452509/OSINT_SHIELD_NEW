@@ -2,6 +2,7 @@
 
 from .client import OllamaClient, OllamaError
 from .prompts import (
+    PROMPT_VERSION,
     PROPAGANDA_SCHEMA,
     PROPAGANDA_SYSTEM,
     PROPAGANDA_TYPES,
@@ -12,6 +13,7 @@ from .prompts import (
 __all__ = [
     "OllamaClient",
     "OllamaError",
+    "PROMPT_VERSION",
     "PROPAGANDA_SCHEMA",
     "PROPAGANDA_SYSTEM",
     "PROPAGANDA_TYPES",

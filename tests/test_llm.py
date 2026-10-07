@@ -45,6 +45,24 @@ def test_schema_constrains_types_to_the_four_techniques():
     assert set(enum) == {"glorification", "justification", "victimhood", "recruitment"}
 
 
+def test_schema_puts_the_analysis_before_the_verdict():
+    """Ollama emits fields in schema order: the model must reason before it decides."""
+    keys = list(PROPAGANDA_SCHEMA["properties"])
+    assert keys.index("analysis") < keys.index("propaganda")
+    assert keys.index("own_voice") < keys.index("propaganda")
+    assert set(PROPAGANDA_SCHEMA["required"]) == set(keys)
+
+
+def test_screener_is_recall_oriented():
+    """v1 told the model 'when unsure, answer no' and it answered no to everything.
+    A screener must flag borderline cases; the human reviewer is the precision filter."""
+    from osint_shield.llm import PROMPT_VERSION, PROPAGANDA_SYSTEM
+
+    assert "when unsure, answer no" not in PROPAGANDA_SYSTEM.lower()
+    assert "borderline" in PROPAGANDA_SYSTEM.lower()
+    assert PROMPT_VERSION != "v1"
+
+
 # --------------------------------------------------------------------- evidence
 def test_evidence_found_ignores_case_quotes_and_spacing():
     assert evidence_found("brave  SONS", "Six ‘brave sons’ were honoured")
