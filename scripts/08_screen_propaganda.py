@@ -40,6 +40,7 @@ from osint_shield.llm import (  # noqa: E402
     OllamaError,
     evidence_found,
     propaganda_prompt,
+    screen_flag,
 )
 
 OUT = ROOT / "runs" / "m8"
@@ -48,15 +49,19 @@ CSV = OUT / "screen.csv"
 CSV_PARTIAL = OUT / "screen_partial.csv"
 
 
-def load_done() -> dict[str, dict]:
-    """Answers already on disk from the CURRENT prompt version - older ones are ignored."""
+def load_done(model: str) -> dict[str, dict]:
+    """Answers on disk from the CURRENT prompt version AND model; all others ignored.
+
+    Keying on the prompt alone would let a run with a different model silently
+    reuse the previous model's answers.
+    """
     if not JSONL.exists():
         return {}
     done = {}
     for line in JSONL.read_text(encoding="utf-8").splitlines():
         if line.strip():
             rec = json.loads(line)
-            if rec.get("prompt_version") == PROMPT_VERSION:
+            if rec.get("prompt_version") == PROMPT_VERSION and rec.get("model") == model:
                 done[rec["id"]] = rec          # later lines override earlier ones
     return done
 
@@ -80,10 +85,15 @@ def show_answers(df: pd.DataFrame, done: dict) -> None:
     for _, r in df.iterrows():
         rec = done.get(r["id"], {})
         mark = "o" if r["y_propaganda"] == 1 else " "
-        verdict = ("YES" if rec.get("propaganda") else "no ") + f" s{rec.get('strength', '?')}"
+        if rec.get("flag"):
+            verdict = f"FLAG s{rec.get('strength', '?')}"
+        elif rec.get("propaganda"):
+            verdict = "quote"            # said yes, but all of it was attributed
+        else:
+            verdict = "no   "
         print(f"\n  {mark} [{verdict}] {str(r['clean_headline'])[:90]}")
         print(f"        analysis: {str(rec.get('analysis', ''))[:180]}")
-        if rec.get("propaganda"):
+        if rec.get("flag"):
             found = "found" if rec.get("evidence_found") else "NOT in text"
             print(f"        evidence ({found}): {str(rec.get('evidence', ''))[:120]}")
 
@@ -94,12 +104,14 @@ def keyword_hits(text: str, matcher: KeywordMatcher) -> str:
 
 
 def summarise(df: pd.DataFrame) -> None:
-    flagged = df["llama_propaganda"].fillna(False).astype(bool)
+    flagged = df["llama_flag"].fillna(False).astype(bool)
+    said_yes = df["llama_propaganda"].fillna(False).astype(bool)
     print("\n" + "=" * 80)
     print(f"  SCREEN SUMMARY - {len(df)} articles")
     print("=" * 80)
-    print(f"  flagged as propaganda by Llama: {int(flagged.sum())} "
-          f"({flagged.mean() * 100:.1f}%)")
+    print(f"  model answered 'propaganda': {int(said_yes.sum())}; of those, all-quoted "
+          f"(dropped by the own-voice rule): {int((said_yes & ~flagged).sum())}")
+    print(f"  FLAGGED for review: {int(flagged.sum())} ({flagged.mean() * 100:.1f}%)")
     print("  strength of flagged:      " +
           str(df.loc[flagged, "llama_strength"].value_counts().sort_index().to_dict()))
     if flagged.any():
@@ -145,7 +157,7 @@ def main() -> int:
     if args.limit:
         df = df.head(args.limit)
     partial = bool(args.only or args.limit)
-    done = load_done()
+    done = load_done(client.model)
     if args.retry_errors:
         done = {k: v for k, v in done.items() if not v.get("error")}
     todo = df[~df["id"].isin(done)]
@@ -162,15 +174,17 @@ def main() -> int:
             for i, (_, row) in enumerate(todo.iterrows(), start=1):
                 body = row["clean_text"] if isinstance(row["clean_text"], str) else ""
                 t0 = time.time()
-                rec = {"id": row["id"], "prompt_version": PROMPT_VERSION}
+                rec = {"id": row["id"], "prompt_version": PROMPT_VERSION,
+                       "model": client.model}
                 try:
                     ans = client.generate_json(
                         propaganda_prompt(row["clean_headline"], body, max_chars=args.max_chars),
                         PROPAGANDA_SCHEMA, system=PROPAGANDA_SYSTEM)
                     rec.update({
                         "analysis": str(ans.get("analysis", "") or ""),
-                        "own_voice": bool(ans.get("own_voice", False)),
+                        "quoted_only": bool(ans.get("quoted_only", False)),
                         "propaganda": bool(ans.get("propaganda", False)),
+                        "flag": screen_flag(ans),
                         "types": [t for t in ans.get("types", []) if isinstance(t, str)],
                         "strength": int(ans.get("strength", 0) or 0),
                         "evidence": str(ans.get("evidence", "") or ""),
@@ -188,7 +202,7 @@ def main() -> int:
                 done[rec["id"]] = rec
                 if i % 10 == 0 or i == len(todo):
                     left = (len(todo) - i) * (sum(times) / len(times)) / 60
-                    n_flag = sum(1 for r in done.values() if r.get("propaganda"))
+                    n_flag = sum(1 for r in done.values() if r.get("flag"))
                     print(f"  {i:4d}/{len(todo)}   {sum(times) / len(times):.1f}s/article   "
                           f"~{left:.0f} min left   flagged so far {n_flag}")
     except KeyboardInterrupt:
@@ -206,9 +220,10 @@ def main() -> int:
         rows.append({
             "id": row["id"], "split": row["split_orig"], "has_body": row["has_body"],
             "headline": row["clean_headline"], "y_propaganda": int(row["y_propaganda"]),
-            "llama_propaganda": rec.get("propaganda"), "llama_strength": rec.get("strength"),
+            "llama_flag": rec.get("flag"), "llama_propaganda": rec.get("propaganda"),
+            "llama_quoted_only": rec.get("quoted_only"), "llama_strength": rec.get("strength"),
             "llama_types": ",".join(rec.get("types", [])), "llama_evidence": rec.get("evidence"),
-            "llama_own_voice": rec.get("own_voice"), "llama_analysis": rec.get("analysis"),
+            "llama_analysis": rec.get("analysis"),
             "evidence_found": rec.get("evidence_found"), "error": rec.get("error"),
             "kw_all": keyword_hits(text, full), "kw_strict": keyword_hits(text, strict),
         })

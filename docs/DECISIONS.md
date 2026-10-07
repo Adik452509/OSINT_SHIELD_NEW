@@ -634,6 +634,20 @@ measured budget in M9/M10, as plan §6.2 anticipates — using development data,
   is tagged with its prompt version; a resume never mixes two prompts.
 - **Calibrate before the full run** on the 7 originals plus the strict-rubric hits — articles
   where a working screener must say yes to at least some.
+- **v2 failed the calibration the other way:** all 19 flagged, every one at strength 2,
+  `own_voice` true on 18/19, `types` mostly the first three schema options in order, and 32% of
+  "evidence" not in the text — largely the prompt's own example phrases copied back. It flagged
+  Trump's attributed "cancer" quote and, for the Bengal CM article, wrote "quotes a politician"
+  and flagged it anyway. **Llama 3.2 3B was filling the form, not judging** (v1 with "no", v2
+  with "yes").
+- **v3:** three invented few-shot examples (own-voice yes / attributed no / neutral no — invented
+  so no corpus answer leaks in); no example phrases inside the definitions; a `quoted_only`
+  field answered before the verdict, with **the own-voice rule enforced in code**
+  (`screen_flag`: an all-quoted answer is never a flag). Resume is keyed on prompt version
+  **and** model. v3 is calibrated on llama3.2:3b and qwen2.5-coder:7b before any full run.
+- **Caveat on blindness:** the 19 calibration articles, and the expectations stated for some of
+  them, have been seen by the reviewer. They are reviewed with the rest but marked not-blind, and
+  M8.5 reports results with and without them.
 - **Review sheet (~100)** = the 7 originals + rubric hits with low-precision terms removed (17)
   + the strongest Llama flags + a **random sample of unflagged articles** (to estimate how many
   positives the screen misses).

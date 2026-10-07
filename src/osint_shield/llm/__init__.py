@@ -8,9 +8,11 @@ from .prompts import (
     PROPAGANDA_TYPES,
     evidence_found,
     propaganda_prompt,
+    screen_flag,
 )
 
 __all__ = [
+    "screen_flag",
     "OllamaClient",
     "OllamaError",
     "PROMPT_VERSION",

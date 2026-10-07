@@ -49,8 +49,36 @@ def test_schema_puts_the_analysis_before_the_verdict():
     """Ollama emits fields in schema order: the model must reason before it decides."""
     keys = list(PROPAGANDA_SCHEMA["properties"])
     assert keys.index("analysis") < keys.index("propaganda")
-    assert keys.index("own_voice") < keys.index("propaganda")
+    assert keys.index("quoted_only") < keys.index("propaganda")
     assert set(PROPAGANDA_SCHEMA["required"]) == set(keys)
+
+
+def test_own_voice_rule_is_enforced_in_code():
+    """v2 described quotes as quotes and flagged them anyway - the gate is not the model's."""
+    from osint_shield.llm import screen_flag
+
+    assert screen_flag({"propaganda": True, "quoted_only": False})
+    assert not screen_flag({"propaganda": True, "quoted_only": True})
+    assert not screen_flag({"propaganda": False, "quoted_only": False})
+    assert not screen_flag({})
+
+
+def test_prompt_contains_no_rubric_phrases_to_parrot():
+    """v2 copied 'martyred heroes, glorious victory' from the instructions as evidence."""
+    p = propaganda_prompt("H", "B").lower()
+    for phrase in ("brave sons", "martyred heroes", "glorious victory", "wrongly imprisoned",
+                   "join the cause", "shield in crisis", "vote bank", "love jihad"):
+        assert phrase not in p, phrase
+
+
+def test_few_shot_examples_are_valid_json_answers():
+    p = propaganda_prompt("H", "B")
+    answers = [json.loads(line) for line in p.splitlines() if line.startswith("{")]
+    assert len(answers) == 3
+    assert [a["propaganda"] for a in answers] == [True, False, False]
+    assert answers[1]["quoted_only"] is True          # the attributed-quote example
+    for a in answers:
+        assert set(a) == set(PROPAGANDA_SCHEMA["properties"])
 
 
 def test_screener_is_recall_oriented():
