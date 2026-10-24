@@ -37,7 +37,16 @@ class Predictor:
         batch_size: articles per forward pass.
     """
 
-    def __init__(self, model, meta: dict, tokenizer, device, *, batch_size: int = 16):
+    def __init__(self, model, meta: dict, tokenizer, device, *, batch_size: int = 16,
+                 precision: str | None = None):
+        """
+        Args:
+            precision: ``"fp32"``, ``"bf16"`` or ``"fp16"``. Defaults to the
+                training config's AMP setting. Serving uses ``fp32``: with bf16,
+                the padding a batch adds shifts rounding enough to flip a
+                near-tie label, so the same article could be labelled
+                differently alone and inside a batch (measured in M9: 1 of 160).
+        """
         self.model = model.eval()
         self.meta = meta
         self.cfg = meta["config"]
@@ -47,13 +56,20 @@ class Predictor:
         # json turns integer keys into strings - restore them
         self.labels = {task: {int(k): v for k, v in names.items()}
                        for task, names in meta["labels"].items()}
-        train_cfg = self.cfg.get("training", {})
-        self.amp = bool(train_cfg.get("amp", True)) and device.type == "cuda"
-        self.amp_dtype = _AMP_DTYPES.get(train_cfg.get("amp_dtype", "bf16"), torch.bfloat16)
+        if precision is None:
+            train_cfg = self.cfg.get("training", {})
+            precision = (train_cfg.get("amp_dtype", "bf16") if train_cfg.get("amp", True)
+                         else "fp32")
+        if precision not in {"fp32", *_AMP_DTYPES}:
+            raise ValueError(f"precision must be fp32, bf16 or fp16, got {precision!r}")
+        self.precision = precision
+        self.amp = precision != "fp32" and device.type == "cuda"
+        self.amp_dtype = _AMP_DTYPES.get(precision, torch.bfloat16)
 
     @classmethod
     def from_dir(cls, model_dir: Path | str, *, device=None, tokenizer=None,
-                 model_builder=None, batch_size: int = 16) -> "Predictor":
+                 model_builder=None, batch_size: int = 16,
+                 precision: str | None = None) -> "Predictor":
         """Load a model saved by :func:`osint_shield.training.final.save_model`."""
         if device is None:
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -62,7 +78,7 @@ class Predictor:
             from ..models import load_tokenizer
 
             tokenizer = load_tokenizer(meta["model_name"])
-        return cls(model, meta, tokenizer, device, batch_size=batch_size)
+        return cls(model, meta, tokenizer, device, batch_size=batch_size, precision=precision)
 
     def _frame(self, df: pd.DataFrame) -> pd.DataFrame:
         frame = df.reset_index(drop=True).copy()

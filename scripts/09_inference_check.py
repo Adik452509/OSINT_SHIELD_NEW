@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 import time
@@ -54,8 +55,14 @@ def section(title: str) -> None:
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--precision", choices=["fp32", "bf16", "fp16"], default=None,
+                    help="override serve.yaml's precision, e.g. to compare bf16 vs fp32")
+    args = ap.parse_args()
     cfg = load_config("serve.yaml")
-    report: dict = {}
+    if args.precision:
+        cfg["precision"] = args.precision
+    report: dict = {"precision": cfg.get("precision", "fp32")}
 
     # ---- 1. calibration on development predictions -------------------------
     oof = pd.read_csv(resolve(cfg["calibration_oof"]))
@@ -86,7 +93,7 @@ def main() -> int:
     section("2. LATENCY - deployed model")
     clf = ArticleClassifier.from_config(cfg)
     print(f"{INFO}model {clf.model_version} on {clf.predictor.device}   "
-          f"escalate_below {clf.routing.escalate_below}")
+          f"precision {clf.predictor.precision}   escalate_below {clf.routing.escalate_below}")
     dev = load_fold_frame("body_only").sample(64, random_state=0)
     articles = [{"id": r["id"], "headline": r["clean_headline"], "body": r["clean_text"]}
                 for _, r in dev.iterrows()]
@@ -111,17 +118,23 @@ def main() -> int:
     # ---- 3. consistency ----------------------------------------------------
     section("3. CONSISTENCY - same article alone vs inside a batch")
     single_records = [clf.classify([a])[0] for a in articles]
-    mismatches, max_diff = 0, 0.0
+    mismatches, max_diff, details = 0, 0.0, []
     for s, b in zip(single_records, batch_records):
         for task in ("narrative", "severity"):
             if s[task]["label"] != b[task]["label"]:
                 mismatches += 1
+                details.append(f"{task}: '{s['headline'][:60]}'  alone {s[task]['label']} "
+                               f"({s[task]['confidence']})  in batch {b[task]['label']} "
+                               f"({b[task]['confidence']})")
             if s[task]["confidence"] is not None and b[task]["confidence"] is not None:
                 max_diff = max(max_diff, abs(s[task]["confidence"] - b[task]["confidence"]))
     print(f"{OK if mismatches == 0 else BAD}label mismatches: {mismatches} of "
-          f"{2 * len(articles)}   largest confidence difference {max_diff:.4f}")
-    print("        (tiny differences are bf16 rounding from different padding - labels must agree)")
-    report["consistency"] = {"label_mismatches": mismatches, "max_confidence_diff": max_diff}
+          f"{2 * len(articles)}   largest confidence difference {max_diff:.6f}")
+    for d in details:
+        print(f"        {d}")
+    print("        (padding changes rounding slightly; in fp32 that must never flip a label)")
+    report["consistency"] = {"label_mismatches": mismatches, "max_confidence_diff": max_diff,
+                             "details": details}
 
     # ---- routing on this sample ---------------------------------------------
     bodied = [r for r in batch_records if r["has_body"]]

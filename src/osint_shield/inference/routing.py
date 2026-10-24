@@ -75,7 +75,8 @@ class ArticleClassifier:
             choice = serve_cfg.get("device", "auto")
             device = get_device(None if choice == "auto" else choice)
         predictor = Predictor.from_dir(model_dir, device=device,
-                                       batch_size=int(serve_cfg.get("batch_size", 16)))
+                                       batch_size=int(serve_cfg.get("batch_size", 16)),
+                                       precision=serve_cfg.get("precision", "fp32"))
         return cls(predictor, model_version(model_dir, predictor.meta),
                    RoutingConfig(**serve_cfg.get("routing", {})))
 

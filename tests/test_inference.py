@@ -94,5 +94,23 @@ def test_labels_are_never_read_at_inference(predictor, articles):
     assert np.array_equal(a["narrative"], b["narrative"])
 
 
+def test_precision_is_validated_and_fp32_disables_autocast(predictor):
+    from osint_shield.inference import Predictor as P
+
+    fp32 = P(predictor.model, predictor.meta, FakeTokenizer(), CPU, precision="fp32")
+    assert fp32.amp is False and fp32.precision == "fp32"
+    with pytest.raises(ValueError, match="precision"):
+        P(predictor.model, predictor.meta, FakeTokenizer(), CPU, precision="int8")
+
+
+def test_single_and_batched_predictions_agree_in_fp32(predictor, articles):
+    """The M9 requirement: an article's labels never depend on what else is in the batch."""
+    batch = predictor.predict(articles)
+    for i in range(len(articles)):
+        alone = predictor.predict(articles.iloc[[i]])
+        for task in ("narrative", "severity"):
+            assert alone[task].iloc[0] == batch[task].iloc[i]
+
+
 def test_empty_input_returns_empty(predictor):
     assert predictor.predict_proba(pd.DataFrame({"clean_headline": []})) == {}

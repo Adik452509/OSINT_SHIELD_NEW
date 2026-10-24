@@ -724,10 +724,45 @@ because neither the rubric nor the local LLMs can pre-select them (D19, finding 
 **Guide note.** The reviewer typed the GE "sabotage" insinuation as victimhood; the guide places
 insinuation under justification. Types are not trained, so this changes nothing downstream.
 
-**Decision (user, 2026-10-24): close M8 without retraining.** The propaganda head stays in the
+**Decision (user, 2026-10-24): close M8 without retraining (cross-ref D21 for serving).** The propaganda head stays in the
 model, trained, and is reported as diagnostic — D3 holds. The live system (M9/M10) reports
 propaganda as **"not reliably assessed"** rather than a yes/no. Future work, with its measured
 cost: ~600 more random articles reviewed under `PROPAGANDA_GUIDE.md` for a ~50-positive set.
+
+---
+
+## D21 · Serving: threshold 0.70, fp32 inference, batched — 2026-10-24
+
+Measured by `scripts/09_inference_check.py` on 1,428 out-of-fold predictions of the D15 recipe
+(development data) and on the deployed model.
+
+**1. The encoder's confidence is trustworthy on bodied articles.** Expected calibration error
+0.036 (narrative), 0.040 (severity). At threshold 0.70: accuracy 87.3% above it, 49.5% below it.
+Confidence-based escalation therefore works for bodied articles — unlike headline-only ones (D17).
+
+**2. Threshold stays at 0.70** (the plan's value).
+
+| threshold | escalated | narrative errors caught |
+|---|---|---|
+| 0.6 | 52% | 45% |
+| **0.7** | **59%** | **58%** |
+| 0.8 | 68% | 77% |
+
+37% escalate on predicted High alone — a floor, and genuine: the true High rate among bodied
+articles is ~34%. The plan's ~25% assumed the all-articles High rate (22.7%).
+
+**Correction to D17.** D17 called 56% escalation "a throughput problem". At realistic local
+volume it is not: ~300 articles/day × 59% × ~4 s per Llama explanation ≈ 12 GPU-minutes a day.
+
+**3. Latency.** Batched: **19.7 ms per article** — meets the plan's ~20 ms (§6.1). One article per
+call: p50 58.5 ms, p95 103.9 ms — fixed per-call overhead (tokenisation, keyword matching). The
+live pipeline classifies each poll as one batch, so the batched figure is the operative one.
+
+**4. fp32 at inference.** In bf16, 1 of 160 labels differed between an article scored alone and
+inside a batch (largest confidence difference 0.0085): batch padding shifts rounding enough to
+flip a near-tie. A record's label must not depend on what else arrived with it — that is what
+makes `model_version` meaningful. Training needed bf16 for memory; inference does not.
+`serve.yaml → precision: fp32`.
 - **Review sheet (~100)** = the 7 originals + rubric hits with low-precision terms removed (17)
   + the strongest Llama flags + a **random sample of unflagged articles** (to estimate how many
   positives the screen misses).

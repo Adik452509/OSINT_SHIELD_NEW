@@ -4,6 +4,11 @@
 model_dir: runs/m7/model_seed42     # D16 - the deployed model, seed fixed in advance
 device: auto                        # auto | cuda | cpu
 batch_size: 16
+# fp32 at inference, although training used bf16. With bf16 the padding a batch
+# adds shifts rounding enough to flip a near-tie label: the same article was
+# labelled differently alone vs in a batch (M9: 1 of 160). Training needed bf16
+# for memory; inference does not. See docs/DECISIONS.md D21.
+precision: fp32                     # fp32 | bf16 | fp16
 
 routing:
   # Plan §6.2: escalate to the LLM when severity is High OR narrative confidence
