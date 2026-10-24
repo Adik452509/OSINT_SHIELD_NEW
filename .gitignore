@@ -25,6 +25,9 @@ results/
 wandb/
 mlruns/
 
+# ---- personal notes (local reading only) ----
+docs/personal/
+
 # ---- model cache ----
 .cache/
 hf_cache/
