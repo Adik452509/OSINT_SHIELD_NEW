@@ -36,7 +36,17 @@ Google-News items that arrive without a body. Then M8–M11.
 
 ---
 
-## 2026-10-24 — M9 · Inference service (in progress)
+## 2026-10-24 — M9 · Inference service ✅ → D21
+
+**Verified** (`scripts/09_inference_check.py`): single vs batch **0/160 label mismatches** (fp32);
+threshold **0.70** kept from 1,428 development OOF predictions (59% escalated, 58% of narrative
+errors caught; ECE 0.036 / 0.040); `model_version` `mmbert-small-s42-b675e23f` on every record;
+latency **26.8 ms/article batched**, 48.0 ms single (plan ~20 ms). Found and fixed on the way: a
+pandas-3 `None → NaN` bug that made every headline-only article look bodied (caught by tests),
+and bf16 near-tie label flips (→ fp32).
+
+**Next: M10** — live pipeline: ingest → dedupe → classify (this service) → Llama explain →
+store → dashboard.
 
 | piece | file | rule it carries |
 |---|---|---|

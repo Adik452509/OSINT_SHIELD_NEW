@@ -763,6 +763,19 @@ inside a batch (largest confidence difference 0.0085): batch padding shifts roun
 flip a near-tie. A record's label must not depend on what else arrived with it — that is what
 makes `model_version` meaningful. Training needed bf16 for memory; inference does not.
 `serve.yaml → precision: fp32`.
+
+**Confirmed after the switch:**
+
+| | bf16 | fp32 |
+|---|---|---|
+| label mismatches, alone vs in batch | 1 / 160 | **0 / 160** |
+| largest confidence difference | 0.0085 | **0.000000** |
+| one article per call, p50 / p95 | 58.5 / 103.9 ms | **48.0 / 72.3 ms** |
+| batched, per article | 19.7 ms | **26.8 ms** |
+
+Single calls got *faster* in fp32 — on small inputs the autocast conversion costs more than it
+saves. Batched throughput is ~35% over the plan's ~20 ms; at ~300 articles/day that is ~8 seconds
+of compute. The write-up reports 26.8 ms and the reason, rather than claiming the target.
 - **Review sheet (~100)** = the 7 originals + rubric hits with low-precision terms removed (17)
   + the strongest Llama flags + a **random sample of unflagged articles** (to estimate how many
   positives the screen misses).
