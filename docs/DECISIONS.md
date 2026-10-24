@@ -686,6 +686,48 @@ the article's own voice. Both LLMs and the rubric treated it as glorification ev
 **What the sheet now measures instead.** Rubric precision (reviewer labels on its ~58 hits), and
 — from the random sample — how much propaganda the rubric misses, which the LLM screen was meant
 to provide.
+
+---
+
+## D20 · What the propaganda review found — 2026-10-24
+
+User labelled all 100 articles blind (9 yes, 91 no; 13 marked unsure). Scored by
+`scripts/08c_score_review.py`; labels (ids only) in `data/resources/propaganda_v2_labels.csv`.
+
+| bucket | n | yes | rate (95% Wilson CI) | of which sure |
+|---|---|---|---|---|
+| original 7 | 7 | 5 | 71.4% (35.9–91.8) | 5 |
+| rubric hits | 53 | 1 | **1.9% (0.3–9.9)** | 0 |
+| random, unflagged | 40 | 3 | **7.5% (2.6–19.9)** | 0 |
+
+**Findings.**
+1. **5 of 7 originals survive the own-voice rule.** Both Bengal-CM "love jihad" articles become
+   `no` — attributed quotation, exactly the case the rule was written for.
+2. **The rubric does not detect propaganda.** Precision 4/58 = 6.9% (2.7–16.4); on blind rows
+   1/41. Three of its four hits are originals whose phrases the rubric reproduces — the
+   circularity of D18, now measured.
+3. **Unflagged articles carry propaganda at least as often as rubric-flagged ones** (7.5% vs
+   1.9%; intervals overlap, so "no better than chance", not "worse"). Extrapolated: ~75 articles
+   (26–199) the rubric cannot see → rubric recall ≈ 5%.
+4. **Clear-cut propaganda is rare; borderline cheerleading is not.** Every `sure` yes is an
+   original. All four new positives are `unsure` own-voice glorification — a promotional Navy
+   feature, a weapons-export piece, a laudatory profile, a patriotic event write-up. Techniques:
+   glorification 7, victimhood 2, justification 1 (multi-label).
+5. **Sure-only, prevalence outside the originals is 0/93** (upper 95% bound ≈ 4%). Whether the
+   first annotation under-labelled by ~10× or not at all depends entirely on borderline cases.
+
+**Consequence for training.** 9 positives (5 sure). M3 measured 0.000 F1 for every learned method
+at 7; with ~2 positives per test fold, a retrain's score would be noise. A trainable set (~50
+positives) at the observed prevalence needs ~600 more random articles reviewed (~8–10 h) — random,
+because neither the rubric nor the local LLMs can pre-select them (D19, finding 3).
+
+**Guide note.** The reviewer typed the GE "sabotage" insinuation as victimhood; the guide places
+insinuation under justification. Types are not trained, so this changes nothing downstream.
+
+**Decision (user, 2026-10-24): close M8 without retraining.** The propaganda head stays in the
+model, trained, and is reported as diagnostic — D3 holds. The live system (M9/M10) reports
+propaganda as **"not reliably assessed"** rather than a yes/no. Future work, with its measured
+cost: ~600 more random articles reviewed under `PROPAGANDA_GUIDE.md` for a ~50-positive set.
 - **Review sheet (~100)** = the 7 originals + rubric hits with low-precision terms removed (17)
   + the strongest Llama flags + a **random sample of unflagged articles** (to estimate how many
   positives the screen misses).

@@ -46,8 +46,16 @@ budget.
 | M8.1 | annotation guide — `docs/PROPAGANDA_GUIDE.md` | ✅ |
 | M8.2 | rubric candidates: 58 (all terms) / **17** (low-precision removed, 29% precision) | ✅ measured |
 | M8.3 | LLM screen — 3 prompt versions × 2 models, all failed calibration → **dropped, D19** | ✅ finding |
-| M8.4 | blind 100-article sheet: 7 originals + all rubric hits + random sample — `scripts/08b_build_review_sheet.py` | ⏳ user labelling |
-| M8.5 | score the screener, build `propaganda_v2`, retrain + measure | ⏳ |
+| M8.4 | blind 100-article sheet: 7 originals + all rubric hits + random sample — `scripts/08b_build_review_sheet.py` | ✅ user labelled 100 (9 yes) |
+| M8.5 | score the review — `scripts/08c_score_review.py`; `propaganda_v2_labels.csv` | ✅ → D20 |
+| M8.6 | retrain propaganda? | ✅ **closed without retraining** — user decision 2026-10-24, D20 |
+
+**M8 ✅ complete.** Propaganda head stays in the model (D3 respected) and is reported as
+diagnostic; the live system will mark propaganda "not reliably assessed". Next: **M9** — API.
+
+**M8.5 headline (D20):** rubric precision 6.9% (1/41 on blind rows), recall ≈ 5%; random unflagged
+articles 7.5% yes (all unsure) vs rubric hits 1.9%; 5/7 originals survive the own-voice rule; every
+`sure` positive is an original. Clear propaganda is rare; borderline own-voice cheerleading is not.
 
 Finding that reshaped M8: the rubric's propaganda terms reproduce the 7 positives' own phrases
 ("brave sons", "shield in crisis", "stall India's programs", "appeasement politics", "vote bank")
