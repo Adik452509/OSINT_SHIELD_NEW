@@ -1,0 +1,25 @@
+# Inference service (M9). Deliberately separate from the training configs:
+# these settings change how predictions are ROUTED, not how the model was trained.
+
+model_dir: runs/m7/model_seed42     # D16 - the deployed model, seed fixed in advance
+device: auto                        # auto | cuda | cpu
+batch_size: 16
+
+routing:
+  # Plan §6.2: escalate to the LLM when severity is High OR narrative confidence
+  # is below this. 0.70 is the plan's starting point; scripts/09_inference_check.py
+  # prints the trade-off measured on development (CV out-of-fold) predictions.
+  escalate_below: 0.70
+  # D17: the encoder is over-confident on headline-only input (0.872 mean vs 0.823
+  # with a body), so these articles are always queued for review, and their
+  # confidence is never used to decide escalation.
+  headline_only_needs_review: true
+
+api:
+  host: 127.0.0.1
+  port: 8000
+  max_articles_per_request: 256
+
+# Development-set predictions for the D15 recipe - used to measure calibration
+# and choose the threshold. Never test.csv.
+calibration_oof: runs/m5/mmBERT-small_body_only_kw-group_counts_m6-e6/oof.csv

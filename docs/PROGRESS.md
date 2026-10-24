@@ -36,7 +36,20 @@ Google-News items that arrive without a body. Then M8–M11.
 
 ---
 
-## 2026-10-05 — M8 · Propaganda re-annotation (in progress) → D18
+## 2026-10-24 — M9 · Inference service (in progress)
+
+| piece | file | rule it carries |
+|---|---|---|
+| routing to the output contract | `inference/routing.py` (`ArticleClassifier`) | plan §6.3 fields; D17 headline-only hybrid + always-review; D20 propaganda "not_reliably_assessed"; §6.2 escalation |
+| calibration helpers | `inference/calibration.py` | reliability table, ECE, threshold sweep — development OOF only |
+| model version | `inference/versioning.py` | `<model>-s<seed>-<sha256[:8] of weights>` on every record |
+| API | `api/main.py`, `api/schemas.py` | `POST /classify`, `POST /classify/one` (same code path), `GET /health` |
+| settings | `configs/serve.yaml` | routing kept separate from training config |
+| checks / server | `scripts/09_inference_check.py`, `scripts/10_serve.py` | calibration, latency vs ~20 ms, single-vs-batch consistency |
+
+---
+
+## 2026-10-05 — M8 · Propaganda re-annotation ✅ → D18–D20
 
 User chose roadmap order (M8 before M9/M10), the **own-voice rule**, and a **~100-article** review
 budget.
