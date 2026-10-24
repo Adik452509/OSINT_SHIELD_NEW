@@ -19,6 +19,12 @@ def client():
         yield c
 
 
+def test_root_redirects_to_the_docs(client):
+    resp = client.get("/", follow_redirects=False)
+    assert resp.status_code in (302, 307)
+    assert resp.headers["location"] == "/docs"
+
+
 def test_health_reports_the_model_version(client):
     body = client.get("/health").json()
     assert body["status"] == "ok"

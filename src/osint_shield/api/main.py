@@ -15,6 +15,7 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import RedirectResponse
 
 from .schemas import ArticleIn, ArticleOut, ClassifyRequest, ClassifyResponse, Health
 
@@ -46,6 +47,11 @@ def create_app(classifier=None, *, serve_cfg: dict | None = None,
 
     def clf():
         return state["classifier"]
+
+    @app.get("/", include_in_schema=False)
+    def root() -> RedirectResponse:
+        """The bare address has nothing of its own - send people to the docs."""
+        return RedirectResponse(url="/docs")
 
     @app.get("/health", response_model=Health)
     def health() -> Health:
