@@ -46,6 +46,9 @@ def _stamp() -> str:
 
 # ------------------------------------------------------------------------- run
 def _print_cycle(rep: dict) -> None:
+    if rep.get("skipped"):
+        print(f"    skipped: {rep['skipped']}")
+        return
     ing, f = rep.get("ingest") or {}, rep.get("fetch") or {}
     c, x = rep.get("classify") or {}, rep.get("explain") or {}
     t = ing.get("totals") or {}

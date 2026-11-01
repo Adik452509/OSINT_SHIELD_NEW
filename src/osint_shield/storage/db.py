@@ -11,10 +11,13 @@ articles      one row per article ever seen - relevant or not, so a story
               rejected at 10:00 is not re-judged at 10:15.
 predictions   the classifier's record per article (M10b).
 explanations  the LLM's summary + verbatim evidence for escalated ones (M10b).
-reviews       analyst corrections from the dashboard (M10c) - how rare classes grow.
+reviews       analyst corrections from the dashboard (M10c) - how rare classes grow,
+              and "not defence news" verdicts: labelled negatives for a learned
+              relevance gate (D22). The latest review per article wins
+              (view ``latest_review``); earlier ones are kept as history.
 ingest_runs   one row per pipeline cycle, for the dashboard's operations view.
 state         small key/value settings that must survive a restart
-              (e.g. when Google's rate limit lifts).
+              (e.g. when Google's rate limit lifts), and the cycle lease.
 
 Article lifecycle (``articles.status``):
 
@@ -36,7 +39,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS articles (
@@ -95,14 +98,19 @@ CREATE TABLE IF NOT EXISTS explanations (
 );
 
 CREATE TABLE IF NOT EXISTS reviews (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    article_id   TEXT NOT NULL REFERENCES articles(id),
-    narrative    TEXT,
-    severity     TEXT,
-    note         TEXT,
-    reviewed_at  TEXT NOT NULL
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id    TEXT NOT NULL REFERENCES articles(id),
+    narrative     TEXT,
+    severity      TEXT,
+    note          TEXT,
+    reviewed_at   TEXT NOT NULL,
+    not_relevant  INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS ix_reviews_article ON reviews(article_id);
+
+CREATE VIEW IF NOT EXISTS latest_review AS
+    SELECT r.* FROM reviews r
+    WHERE r.id = (SELECT MAX(id) FROM reviews r2 WHERE r2.article_id = r.article_id);
 
 CREATE TABLE IF NOT EXISTS ingest_runs (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -117,11 +125,20 @@ CREATE TABLE IF NOT EXISTS state (
 );
 """
 
-#: v1 -> v2 (M10b): where a Google News link really points, and why a fetch failed.
-_MIGRATE_1_TO_2 = (
-    "ALTER TABLE articles ADD COLUMN resolved_url TEXT",
-    "ALTER TABLE articles ADD COLUMN fetch_error TEXT",
+#: Columns added since v1, as (table, column, declaration). Upgrading adds whichever
+#: are missing, so any older file reaches the current schema with its data kept.
+_ADDED_COLUMNS = (
+    ("articles", "resolved_url", "TEXT"),                          # v2, M10b
+    ("articles", "fetch_error", "TEXT"),                           # v2, M10b
+    ("reviews", "not_relevant", "INTEGER NOT NULL DEFAULT 0"),     # v3, M10c
 )
+
+
+def _upgrade(con: sqlite3.Connection) -> None:
+    for table, column, decl in _ADDED_COLUMNS:
+        cols = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+        if cols and column not in cols:          # an absent table is created whole later
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 #: Columns an article row is inserted with.
 ARTICLE_COLUMNS = ("id", "url", "url_hash", "headline", "headline_key", "body", "body_source",
@@ -156,12 +173,11 @@ class LiveStore:
         with self._conn() as con:
             con.execute("PRAGMA journal_mode=WAL")
             version = con.execute("PRAGMA user_version").fetchone()[0]
-            if version == 1:
-                for sql in _MIGRATE_1_TO_2:
-                    con.execute(sql)
-            elif version not in (0, SCHEMA_VERSION):
+            if version > SCHEMA_VERSION:
                 raise RuntimeError(f"{self.path} has schema v{version}; this code expects "
-                                   f"v{SCHEMA_VERSION}")
+                                   f"v{SCHEMA_VERSION} - update the code")
+            if 0 < version < SCHEMA_VERSION:
+                _upgrade(con)
             con.executescript(_SCHEMA)
             con.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
@@ -323,6 +339,45 @@ class LiveStore:
     def set_state(self, key: str, value: str | None) -> None:
         with self._conn() as con:
             con.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)", (key, value))
+
+    def acquire_lease(self, name: str, owner: str, *, now: str, until: str) -> str | None:
+        """Take a named lease unless another owner holds an unexpired one.
+
+        Two processes may run cycles - ``11_live.py run`` in one window and the
+        dashboard's scheduler in another - and two cycles at once would load the
+        models twice and double the requests to Google. Returns ``None`` when the
+        lease is taken, otherwise the current holder.
+        """
+        key = f"lease:{name}"
+        with self._conn() as con:
+            con.execute("BEGIN IMMEDIATE")          # no one else reads between check and set
+            row = con.execute("SELECT value FROM state WHERE key = ?", (key,)).fetchone()
+            if row and row[0]:
+                held = json.loads(row[0])
+                if held["owner"] != owner and held["until"] > now:
+                    return held["owner"]
+            con.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)",
+                        (key, json.dumps({"owner": owner, "until": until})))
+        return None
+
+    def release_lease(self, name: str, owner: str) -> None:
+        key = f"lease:{name}"
+        with self._conn() as con:
+            row = con.execute("SELECT value FROM state WHERE key = ?", (key,)).fetchone()
+            if row and row[0] and json.loads(row[0])["owner"] == owner:
+                con.execute("DELETE FROM state WHERE key = ?", (key,))
+
+    # --------------------------------------------------------------- reviews
+    def save_review(self, article_id: str, *, narrative: str | None = None,
+                    severity: str | None = None, not_relevant: bool = False,
+                    note: str | None = None, reviewed_at: str) -> int:
+        """Store an analyst's verdict. The model's prediction is never overwritten."""
+        with self._conn() as con:
+            cur = con.execute("INSERT INTO reviews (article_id, narrative, severity, note, "
+                              "reviewed_at, not_relevant) VALUES (?, ?, ?, ?, ?, ?)",
+                              (article_id, narrative, severity, note, reviewed_at,
+                               int(not_relevant)))
+            return int(cur.lastrowid)
 
     # ------------------------------------------------------------------- reads
     def get_article(self, article_id: str) -> dict | None:

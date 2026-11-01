@@ -24,6 +24,10 @@ api:
   host: 127.0.0.1
   port: 8000
   max_articles_per_request: 256
+  # Browser pages allowed to call the API: the React dashboard's dev server (M10d).
+  cors_origins:
+    - http://localhost:5173
+    - http://127.0.0.1:5173
 
 # Development-set predictions for the D15 recipe - used to measure calibration
 # and choose the threshold. Never test.csv.

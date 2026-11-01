@@ -237,7 +237,7 @@ def test_a_version_1_database_is_upgraded_in_place(tmp_path):
     row = store.get_article("a_1")
     assert row["headline"] == "Army exercise" and row["resolved_url"] is None
     con = sqlite3.connect(path)
-    assert con.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert con.execute("PRAGMA user_version").fetchone()[0] == 3
     con.close()
 
 

@@ -5,6 +5,11 @@ live:
   db_path: data/live/osint_live.db        # gitignored
   poll_minutes: 15                         # your choice (M10 decisions)
 
+  # The API server's background scheduler (scripts/10_serve.py, M10c). Off at start
+  # unless --start: the dashboard's Operations tab starts and stops it.
+  scheduler:
+    autostart: false
+
   http:
     timeout_s: 20
     # Identifies us honestly; sites that refuse it show up as errors in the run table.

@@ -5,6 +5,24 @@ Running log. Newest first. See [DECISIONS.md](DECISIONS.md) for the reasoning be
 
 ---
 
+## 2026-11-01 — M10c · Dashboard API → D24
+
+| piece | file | rule it carries |
+|---|---|---|
+| routes | `api/live.py` | `/live/summary`, `articles` (views + filters), `articles/{id}`, `review`, `trend`, `sources`, `status`, `scheduler/start\|stop`, `run-now` |
+| queries | `storage/dashboard.py` | alert policy as views; effective labels = latest review over model |
+| scheduler | `live/runner.py` | background cycles in the server; one at a time |
+| app | `api/main.py` | one shared, locked model; CORS for the Vite dev server |
+| store | `storage/db.py` | schema v3: `reviews.not_relevant`, `latest_review` view, cycle lease |
+| server | `scripts/10_serve.py` | loads `live.yaml`; `--start`, `--classify-only` |
+
+On a copy of the live DB: alerts 10 (real events), analysis 69, review 114; 8–100 ms per call.
+Tests: 326.
+
+**Next:** user runs the server and tries the endpoints in `/docs`. Then M10d (dashboard).
+
+---
+
 ## 2026-11-01 — M10b · Bodies, classification, explanations, the loop → D23
 
 | piece | file | rule it carries |

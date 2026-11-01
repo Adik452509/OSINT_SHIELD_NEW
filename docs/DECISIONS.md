@@ -913,3 +913,33 @@ relabelling — a finding for the write-up (M11).
 (`live.alerts`: 19FortyFive, The Diplomat). Labels are stored unchanged; only the dashboard's
 alert list is filtered. Analysis-outlet articles appear under "Analysis"; headline-only Highs
 as "unconfirmed". Implemented in M10c.
+
+---
+
+## D24 · Dashboard API: one server, effective labels, one cycle at a time — 2026-11-01
+
+**1. One server.** The `/live` dashboard routes join M9's `/classify` in the same FastAPI app
+(`scripts/10_serve.py`, which now loads `live.yaml`). The pipeline cycles run on a background
+thread of that server (`live/runner.py`), started and stopped from the dashboard. The model is
+loaded **once** and shared between API requests and cycles behind a lock (`SharedClassifier`) —
+on a 6 GB card that also drives the display, a second copy is not affordable.
+
+**2. One cycle at a time, across processes.** `11_live.py run` in one window and the server's
+scheduler in another would load models twice and double the requests to Google (D23). A lease
+in the `state` table (`acquire_lease`, 45-min expiry so a crashed cycle cannot block forever)
+makes the second one skip its cycle and say so.
+
+**3. Reviews never overwrite predictions.** An analyst's latest review gives the *effective*
+labels used for display, filtering and the alert policy; the prediction row stays as the model
+gave it, so model and analyst can be compared, and every earlier review is kept as history.
+"Not defence news" is a review too (`not_relevant`): the article leaves every view except
+"dismissed", and the verdicts are the labelled negatives D22 planned for a learned gate.
+
+**4. Views implement the alert policy (D23)** in SQL, so counts, pages and the trend agree:
+alerts / unconfirmed / analysis / review / dismissed / all. Analysis outlets are named by
+source but matched by domain, so the same outlet arriving through Google News is recognised.
+
+**On the live data (copy, 205 classified):** alerts 10 — Patriot deal for Ukraine, 22 Indians
+killed in the West Asia conflict, a family shooting, the Andhra chainsaw attack (and the NASA
+telescope, a model error); analysis 69; review queue 114. Before the policy, the High list was
+dominated by 19FortyFive features. Responses 8–100 ms.

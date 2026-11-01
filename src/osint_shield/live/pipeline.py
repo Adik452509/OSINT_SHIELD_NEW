@@ -23,6 +23,8 @@ Stage rules (D22, D23):
 
 from __future__ import annotations
 
+import os
+import socket
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Callable
@@ -84,6 +86,10 @@ class LivePipeline:
         self._classifier = None
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.log = log or (lambda msg: None)
+        #: identifies this pipeline in the cycle lease
+        self.owner = f"{socket.gethostname()}:{os.getpid()}:{id(self):x}"
+        #: a cycle that crashed without releasing its lease blocks others this long
+        self.lease_ttl = timedelta(minutes=45)
 
         fetch = live_cfg.get("fetch") or {}
         self.max_pages = int(fetch.get("max_pages_per_cycle", 120))
@@ -104,8 +110,13 @@ class LivePipeline:
 
     # ------------------------------------------------------------ construction
     @classmethod
-    def from_config(cls, cfg: dict, *, log=None) -> "LivePipeline":
-        """Build the real pipeline from a loaded ``live.yaml`` (which extends serve.yaml)."""
+    def from_config(cls, cfg: dict, *, log=None, classifier=None) -> "LivePipeline":
+        """Build the real pipeline from a loaded ``live.yaml`` (which extends serve.yaml).
+
+        Args:
+            classifier: an already-loaded ``ArticleClassifier`` to share - the API
+                passes its own, so the model is not loaded twice on a 6 GB card.
+        """
         from ..ingestion import HttpFetcher, RelevanceGate, load_sources
         from ..ingestion.fetch import PageFetcher
         from ..ingestion.gnews import GoogleNewsDecoder
@@ -130,7 +141,8 @@ class LivePipeline:
             decoder=GoogleNewsDecoder(timeout=timeout,
                                       user_agent=dec.get("user_agent", agent),
                                       delay_s=float(dec.get("delay_s", 6))),
-            classifier_factory=lambda: ArticleClassifier.from_config(cfg),
+            classifier_factory=(lambda: classifier) if classifier is not None
+            else (lambda: ArticleClassifier.from_config(cfg)),
             llm=OllamaClient(model=ex.get("model"), timeout=float(ex.get("timeout_s", 120))),
             log=log)
 
@@ -149,7 +161,23 @@ class LivePipeline:
 
     # ------------------------------------------------------------------ cycle
     def run_cycle(self) -> dict:
-        """Run all four stages; returns (and stores) the cycle report."""
+        """Run all four stages; returns (and stores) the cycle report.
+
+        Holds the ``cycle`` lease for the duration: if another process (the CLI
+        loop, or the dashboard's scheduler) is mid-cycle, this one is skipped -
+        reported with ``skipped``, not recorded.
+        """
+        now = self.clock()
+        holder = self.store.acquire_lease("cycle", self.owner, now=_fmt(now),
+                                          until=_fmt(now + self.lease_ttl))
+        if holder is not None:
+            return {"skipped": f"another cycle is running ({holder})", "errors": []}
+        try:
+            return self._run_stages()
+        finally:
+            self.store.release_lease("cycle", self.owner)
+
+    def _run_stages(self) -> dict:
         t0 = time.monotonic()
         report: dict = {"started_at": _fmt(self.clock()), "errors": []}
         for name, stage in (("ingest", self.stage_ingest), ("fetch", self.stage_fetch),
