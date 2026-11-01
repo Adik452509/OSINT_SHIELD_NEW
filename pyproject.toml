@@ -45,6 +45,7 @@ ingest = [
     "feedparser>=6.0",      # RSS / Atom parsing (M10a)
     "beautifulsoup4>=4.12", # feed HTML -> text
     "httpx>=0.27",          # downloads
+    "trafilatura>=2.0",     # article text from publisher pages (M10b)
 ]
 llm = [
     "httpx>=0.27",

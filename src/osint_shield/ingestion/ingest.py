@@ -71,7 +71,8 @@ def is_blocked(domain: str, blocked: frozenset[str]) -> bool:
 
 def ingest_source(store: LiveStore, source: Source, fetch: Callable[[str], bytes],
                   gate: RelevanceGate, *, min_body_chars: int = 1000, max_items: int = 200,
-                  blocked_domains: frozenset[str] = frozenset()) -> SourceReport:
+                  blocked_domains: frozenset[str] = frozenset(),
+                  now: Callable[[], str] = utc_now) -> SourceReport:
     """Poll one source. A failing source is reported, never raised: one dead feed
     must not stop the other twenty."""
     rep = SourceReport(source.name)
@@ -125,7 +126,7 @@ def ingest_source(store: LiveStore, source: Source, fetch: Callable[[str], bytes
                 "fetch_status": fetch_status, "source": source.name,
                 "source_kind": source.kind, "source_domain": item.source_domain,
                 "language": item.language, "published_at": item.published_at,
-                "collected_at": utc_now(), "relevant": relevant, "gate_terms": terms,
+                "collected_at": now(), "relevant": relevant, "gate_terms": terms,
                 "status": status,
             })
         except sqlite3.IntegrityError:
@@ -141,21 +142,27 @@ def ingest_source(store: LiveStore, source: Source, fetch: Callable[[str], bytes
 def run_ingest(store: LiveStore, sources: list[Source], fetch: Callable[[str], bytes],
                gate: RelevanceGate, *, min_body_chars: int = 1000, max_items: int = 200,
                blocked_domains=(),
-               on_source: Callable[[SourceReport], None] | None = None) -> IngestReport:
+               on_source: Callable[[SourceReport], None] | None = None,
+               record: bool = True, now: Callable[[], str] = utc_now) -> IngestReport:
     """Poll every source in order and record the pass in ``ingest_runs``.
 
     Args:
         blocked_domains: publisher domains never stored (and their subdomains).
         on_source: called after each source - the script prints progress with it.
+        record: write the run to ``ingest_runs``; the live pipeline records its
+            whole cycle instead.
+        now: the clock stamped on articles - the pipeline passes its own, so its
+            "give up waiting" rule compares like with like.
     """
     blocked = frozenset(d.lower().removeprefix("www.") for d in blocked_domains)
-    report = IngestReport(started_at=utc_now())
+    report = IngestReport(started_at=now())
     for source in sources:
         rep = ingest_source(store, source, fetch, gate, min_body_chars=min_body_chars,
-                            max_items=max_items, blocked_domains=blocked)
+                            max_items=max_items, blocked_domains=blocked, now=now)
         report.sources.append(rep)
         if on_source is not None:
             on_source(rep)
-    report.finished_at = utc_now()
-    store.record_run(report.started_at, report.finished_at, report.to_dict())
+    report.finished_at = now()
+    if record:
+        store.record_run(report.started_at, report.finished_at, report.to_dict())
     return report

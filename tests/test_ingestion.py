@@ -220,7 +220,7 @@ def test_store_starts_empty_with_schema_version(store):
 
     assert store.stats()["articles"] == 0
     con = sqlite3.connect(store.path)
-    assert con.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert con.execute("PRAGMA user_version").fetchone()[0] == 2
     con.close()
 
 

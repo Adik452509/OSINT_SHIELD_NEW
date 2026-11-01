@@ -17,6 +17,10 @@ class OllamaError(RuntimeError):
     """Ollama is unreachable, or returned something unusable."""
 
 
+class OllamaUnavailable(OllamaError):
+    """Ollama could not be reached at all - retry later; nothing is wrong with the input."""
+
+
 class OllamaClient:
     """Talks to ``OLLAMA_HOST`` (default ``http://127.0.0.1:11434``).
 
@@ -40,8 +44,8 @@ class OllamaClient:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 return json.load(resp)
-        except urllib.error.URLError as exc:
-            raise OllamaError(f"cannot reach Ollama at {self.host}: {exc}") from exc
+        except (urllib.error.URLError, ConnectionError, TimeoutError) as exc:
+            raise OllamaUnavailable(f"cannot reach Ollama at {self.host}: {exc}") from exc
 
     def models(self) -> list[str]:
         """Tags of the locally pulled models."""

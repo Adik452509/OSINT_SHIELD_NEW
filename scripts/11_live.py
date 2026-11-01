@@ -1,25 +1,34 @@
 #!/usr/bin/env python
 """M10 - the live pipeline.
 
-    python scripts/11_live.py ingest              # poll every source once
-    python scripts/11_live.py ingest --source navalnews
+    python scripts/11_live.py run --once          # one full cycle, then stop
+    python scripts/11_live.py run                 # a cycle every 15 min; Ctrl+C stops
     python scripts/11_live.py stats               # what the database holds
+    python scripts/11_live.py show                # latest labelled articles
+    python scripts/11_live.py show --high         # ... only High severity
+    python scripts/11_live.py ingest              # collect only (M10a)
     python scripts/11_live.py sample              # eyeball the relevance gate
 
-M10a: ingestion only - articles are collected, deduplicated, gated and stored in
-data/live/osint_live.db. Classification and the 15-minute loop arrive in M10b.
-Settings: configs/live.yaml.
+A cycle = collect -> fetch article text -> classify -> Llama explains escalated
+articles. Data: data/live/osint_live.db. Settings: configs/live.yaml.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sqlite3
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+
+from osint_shield.runtime import configure_environment  # noqa: E402
+
+configure_environment()
 
 from osint_shield.config import load_config  # noqa: E402
 from osint_shield.paths import resolve  # noqa: E402
@@ -31,6 +40,65 @@ def _store(cfg):
     return LiveStore(resolve(cfg["live"]["db_path"]))
 
 
+def _stamp() -> str:
+    return datetime.now().strftime("%H:%M:%S")
+
+
+# ------------------------------------------------------------------------- run
+def _print_cycle(rep: dict) -> None:
+    ing, f = rep.get("ingest") or {}, rep.get("fetch") or {}
+    c, x = rep.get("classify") or {}, rep.get("explain") or {}
+    t = ing.get("totals") or {}
+    print(f"    collected  {t.get('new', 0)} new, {t.get('relevant', 0)} relevant "
+          f"({t.get('fetched', 0)} feed items read)")
+    if ing.get("failed_sources"):
+        print(f"               sources that failed: {', '.join(ing['failed_sources'])}")
+    print(f"    text       {f.get('pages_ok', 0)} pages fetched, {f.get('pages_failed', 0)} failed, "
+          f"{f.get('pages_skipped', 0)} skipped (site blocks us); "
+          f"Google News {f.get('gnews_decoded', 0)} decoded, {f.get('gnews_failed', 0)} failed, "
+          f"{f.get('duplicates', 0)} were duplicates; {f.get('expired', 0)} gave up waiting")
+    if f.get("gnews_paused_until"):
+        print(f"               Google News decoding paused until {f['gnews_paused_until']} UTC")
+    print(f"    classified {c.get('classified', 0)} ({c.get('with_body', 0)} with text): "
+          f"{c.get('high', 0)} High, {c.get('escalated', 0)} escalated, "
+          f"{c.get('needs_review', 0)} for review")
+    note = f"  [{x['skipped']}]" if x.get("skipped") else ""
+    each = f", {x['seconds_each']} s each" if x.get("seconds_each") else ""
+    print(f"    explained  {x.get('ok', 0)} ok, {x.get('unverified', 0)} without verified quotes, "
+          f"{x.get('failed', 0)} failed{each}; {x.get('quotes_dropped', 0)} invented quotes "
+          f"dropped{note}")
+    for err in rep.get("errors", []):
+        print(f"    [!!] {err}")
+    print(f"    took {rep.get('seconds', 0)} s")
+
+
+def cmd_run(cfg, args) -> int:
+    from osint_shield.live import LivePipeline
+
+    every = float(args.every or cfg["live"].get("poll_minutes", 15))
+    pipe = LivePipeline.from_config(cfg, log=lambda m: print(f"  [{_stamp()}] {m}", flush=True))
+    print(f"  database: {pipe.store.path.relative_to(ROOT)}")
+    if not args.once:
+        print(f"  a cycle every {every:g} min - Ctrl+C to stop\n")
+    try:
+        while True:
+            start = time.monotonic()
+            print(f"  === cycle started {_stamp()}")
+            _print_cycle(pipe.run_cycle())
+            if args.once:
+                break
+            wait = every * 60 - (time.monotonic() - start)
+            if wait > 0:
+                print(f"  next cycle in {wait / 60:.1f} min\n", flush=True)
+                time.sleep(wait)
+    except KeyboardInterrupt:
+        print("\n  stopped.")
+    finally:
+        pipe.close()
+    return 0
+
+
+# ---------------------------------------------------------------------- ingest
 def cmd_ingest(cfg, args) -> int:
     from osint_shield.ingestion import HttpFetcher, RelevanceGate, load_sources, run_ingest
 
@@ -78,20 +146,56 @@ def cmd_ingest(cfg, args) -> int:
     return 0
 
 
+# ----------------------------------------------------------------------- stats
 def cmd_stats(cfg, args) -> int:
     s = _store(cfg).stats()
-    print(f"  articles stored     {s['articles']}")
-    print(f"  relevant            {s['relevant']}")
-    print(f"    with full text    {s['relevant_with_body']}")
-    print(f"    waiting for body  {s['pending_fetch']}")
-    print(f"  by status           {s['by_status']}")
-    print(f"  polls so far        {s['runs']}  (last finished {s['last_run']} UTC)\n")
-    print(f"  {'source':34s} {'stored':>6s} {'relevant':>8s} {'w/ body':>7s}")
+    print(f"  articles stored      {s['articles']}   (relevant {s['relevant']})")
+    print(f"  article status       {s['by_status']}")
+    print(f"  text (relevant)      {s['by_fetch_status']}   from {s['body_source']}")
+    print(f"  classified           {s['predictions']}: {s['by_narrative']}")
+    print(f"    High severity      {s['high_severity']}")
+    print(f"    escalated          {s['escalated']}")
+    print(f"    for review         {s['needs_review']}")
+    print(f"  explanations         {s['explanations']}")
+    print(f"  cycles so far        {s['runs']}  (last finished {s['last_run']} UTC)\n")
+    print(f"  {'source':34s} {'stored':>6s} {'relevant':>8s} {'w/ text':>7s}")
     for r in s["by_source"]:
         print(f"  {r['source']:34s} {r['n']:6d} {r['relevant'] or 0:8d} {r['with_body'] or 0:7d}")
     return 0
 
 
+# ------------------------------------------------------------------------ show
+def cmd_show(cfg, args) -> int:
+    """The latest labelled articles, with Llama's summary and quotes when present."""
+    con = sqlite3.connect(_store(cfg).path)
+    con.row_factory = sqlite3.Row
+    where = "WHERE p.severity = 'High'" if args.high else ""
+    rows = con.execute(
+        f"SELECT a.headline, a.source_domain, a.body IS NOT NULL AS has_text, p.narrative, "
+        f"p.narrative_conf, p.narrative_source, p.severity, p.p_high, p.escalated, "
+        f"p.needs_review, e.status AS ex_status, e.summary, e.evidence "
+        f"FROM predictions p JOIN articles a ON a.id = p.article_id "
+        f"LEFT JOIN explanations e ON e.article_id = a.id {where} "
+        f"ORDER BY a.collected_at DESC LIMIT ?", (args.n,)).fetchall()
+    for r in rows:
+        conf = f"{r['narrative_conf']:.2f}" if r["narrative_conf"] is not None else r["narrative_source"]
+        flags = " ".join(f for f, on in (("ESCALATED", r["escalated"]),
+                                         ("REVIEW", r["needs_review"]),
+                                         ("headline-only", not r["has_text"])) if on)
+        print(f"\n  {r['headline'][:110]}")
+        print(f"    {r['source_domain']} | {r['narrative']} ({conf}) | {r['severity']} "
+              f"(P(High) {r['p_high']:.2f}) | {flags}")
+        if r["ex_status"]:
+            print(f"    LLM [{r['ex_status']}]: {(r['summary'] or '')[:300]}")
+            for q in json.loads(r["evidence"] or "[]"):
+                print(f"      “{q[:200]}”")
+    if not rows:
+        print("  nothing classified yet - run:  python scripts/11_live.py run --once")
+    con.close()
+    return 0
+
+
+# ---------------------------------------------------------------------- sample
 def cmd_sample(cfg, args) -> int:
     """Random admitted and rejected headlines from gated sources - judge the gate by eye."""
     store = _store(cfg)
@@ -113,18 +217,26 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--config", default="live.yaml")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("ingest", help="poll the sources once")
+    p = sub.add_parser("run", help="the pipeline: every poll_minutes, or --once")
+    p.add_argument("--once", action="store_true", help="one cycle, then stop")
+    p.add_argument("--every", type=float, help="minutes between cycles (default: live.yaml)")
+    p = sub.add_parser("ingest", help="collect only, once")
     p.add_argument("--source", help="poll only this source (name from live.yaml)")
     sub.add_parser("stats", help="summarise the database")
+    p = sub.add_parser("show", help="latest labelled articles")
+    p.add_argument("-n", type=int, default=10)
+    p.add_argument("--high", action="store_true", help="only High severity")
     p = sub.add_parser("sample", help="random admitted / rejected headlines")
     p.add_argument("-n", type=int, default=15)
     args = ap.parse_args()
 
     cfg = load_config(args.config)
+    commands = {"run": cmd_run, "ingest": cmd_ingest, "stats": cmd_stats, "show": cmd_show,
+                "sample": cmd_sample}
     try:
-        return {"ingest": cmd_ingest, "stats": cmd_stats, "sample": cmd_sample}[args.cmd](cfg, args)
+        return commands[args.cmd](cfg, args)
     except ImportError as exc:
-        print(f"  [!!] {exc}\n       install the ingestion extras:  pip install -e \".[ingest]\"")
+        print(f"  [!!] {exc}\n       install the extras:  pip install -e \".[ingest,serve,llm]\"")
         return 1
 
 

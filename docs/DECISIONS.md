@@ -845,3 +845,71 @@ corpus-relative. Headlines under 4 words are not deduped on ("Live updates").
 
 **5. Every item is stored, relevant or not**, so a story rejected at 10:00 is not re-judged at
 10:15, and the gate can be audited later.
+
+---
+
+## D23 · Live pipeline: fetching bodies, Google News, the LLM stage — 2026-11-01
+
+**Cycle** = ingest → fetch bodies → classify → explain (`live/pipeline.py`, `11_live.py run`).
+Each stage works from what the database says is waiting, so an interrupted cycle loses nothing;
+a failing stage is reported and the others still run.
+
+**1. Bodies come from publisher pages** (trafilatura). Only Naval News and 19FortyFive carry
+full text in their feeds (D22). Measured on 3 random relevant articles per source: defence.in,
+Indian Express, The Hindu, HT, Livemint, BusinessLine 3/3; TOI 2/3; **The Diplomat and SCMP
+answer 403 to any automated client** (honest or browser user-agent alike) and are skipped, so
+their articles stay headline-only. The honest user-agent was accepted everywhere a browser one
+was, so the pipeline keeps it. A page counts as a body if ≥ 400 characters (lower than the
+feed's 1,000: a page is not truncated, and real short articles exist) **and** ≥ 40% of the
+headline's content words appear in its title or opening (catches consent walls and redirects).
+
+**2. Google News links are resolved through an undocumented Google endpoint.** The RSS link
+opens a Google page; the publisher URL needs a second request with a signature from that page.
+12/12 resolved correctly at ~0.7 s each — then **~40 requests in two minutes drew an HTTP 429**
+("unusual traffic"). So: ≤ 10 decodes per cycle, 6 s apart, and the first 429 pauses decoding
+for 60 min (stored in the `state` table, so a restart does not hammer Google again). A resolved
+URL already stored under the publisher's own feed marks the Google item as `duplicate`.
+**Risk:** the interface can change without notice; then articles fall back to headline-only.
+
+**3. Classify only after the fetch has settled** — `ok`, `failed`, or waited
+`give_up_after_minutes` (60). Classifying first and re-classifying later would flip alerts after
+the fact. Cost: an article whose body never comes waits up to an hour.
+
+**4. The LLM stage asks for facts, not judgements** (lesson of D19). Llama 3.2 3B is not shown
+the classifier's labels; it returns 1–3 sentences copied from the article and a two-sentence
+summary. Every quote is checked against the article in code; ones not found are dropped
+(3 of 18 in the first real run); with none left the explanation is stored as `unverified`.
+Only escalated articles **with a body** are explained, High first. Speed: 4–5 s each
+(1,500 tokens in, ~200 out, ~55 tok/s, fully on GPU), one 13 s stall seen — so the stage stops
+at a 5-minute budget rather than a fixed count.
+
+**5. GPU sharing fits.** 1.2 GB before (display) → 4.3 GB with the encoder (fp32, peak
+1.13 GB allocated) and Llama (2.6 GB) both loaded, of 6 GB. The encoder's cached memory is
+released before the LLM stage.
+
+**First real cycle** (copy of the live DB, small budgets): 67 pages fetched, 0 failed, 53
+skipped (Diplomat/SCMP); 170 classified, 69% with a body; 39 High, 45% escalated, 55% for
+review; 6/6 explanations verified; 210 s. Google decoding was still under the 429 pause from
+testing, and the pause logic held.
+
+**Known limitation, visible live.** Headline-only articles (mostly The Diplomat) get confident
+High labels — "Uzbekistan Wants Out of the Iran-US Social Media War", P(High) 0.53 — the D17
+over-confidence. They are flagged for review and not explained.
+
+**User's first cycle (live DB, 2026-11-01).** 170 classified; 40 explained at 4.1 s each;
+**28 invented quotes dropped** (~1 in 4 returned) — the verification is not optional. Google
+decoding answered 429 again on its first request (still blocked from testing).
+
+**What "High" means in this corpus — and the alert policy.** Of 38 High labels: 9 headline-only,
+all The Diplomat; of the 29 bodied, **22 are 19FortyFive** feature and history pieces ("Patton's
+best Army line", "F-16N summed up in 1 word"), while real incidents ("3 killed in gunfight in
+Manipur", P(High) 0.50) rank at the bottom. The model is faithful to its labels: in the gold
+set **42% of 19FortyFive and 44% of Naval News articles are High** ("Iran's Next Military
+Arsenal Comes From China"; "Naval Group delivers 4th Barracuda submarine"). Gold "High" often
+means *militarily significant topic*, not *serious incident now*. Not fixable without
+relabelling — a finding for the write-up (M11).
+
+**Decision (user, 2026-11-01): alert = High AND bodied AND not an analysis outlet**
+(`live.alerts`: 19FortyFive, The Diplomat). Labels are stored unchanged; only the dashboard's
+alert list is filtered. Analysis-outlet articles appear under "Analysis"; headline-only Highs
+as "unconfirmed". Implemented in M10c.

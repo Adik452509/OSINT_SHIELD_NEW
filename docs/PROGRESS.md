@@ -5,6 +5,26 @@ Running log. Newest first. See [DECISIONS.md](DECISIONS.md) for the reasoning be
 
 ---
 
+## 2026-11-01 — M10b · Bodies, classification, explanations, the loop → D23
+
+| piece | file | rule it carries |
+|---|---|---|
+| page text | `ingestion/fetch.py` | trafilatura; ≥ 400 chars and headline match, else `FetchError` |
+| Google News links | `ingestion/gnews.py` | undocumented 2-step decode; 429 → `GoogleRateLimited` |
+| LLM stage | `llm/explain.py` | facts not judgements; quotes verified in code |
+| the cycle | `live/pipeline.py` | ingest → fetch → classify → explain; stage failures isolated |
+| store | `storage/db.py` | schema v2 (auto-upgrade from v1): `resolved_url`, `fetch_error`, `state` table |
+| script | `scripts/11_live.py` | `run [--once]`, `stats`, `show [--high]` |
+
+Trial cycle on a copy of the live DB: 67 pages fetched / 0 failed / 53 skipped (Diplomat, SCMP
+block bots); 170 classified (69% with body), 39 High, 45% escalated; 6/6 explanations
+verified, 3 invented quotes dropped; GPU 4.3 / 6 GB with both models; 210 s. Google decoding
+paused itself (429 left over from testing). Tests: 296.
+
+**Next:** user installs trafilatura, runs a cycle, reads `show`. Then M10c (dashboard API).
+
+---
+
 ## 2026-11-01 — M10a · Live ingestion → D22
 
 User decisions: publisher feeds + Google News, poll every 15 min, adapt the old React dashboard,

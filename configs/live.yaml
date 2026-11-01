@@ -19,6 +19,43 @@ live:
     min_body_chars: 1000
     max_items_per_source: 200
 
+  # Fetching article pages for bodies (M10b, D23).
+  fetch:
+    max_pages_per_cycle: 120
+    delay_s: 0.5                 # between page requests
+    # Pages give a cleaner signal than feeds (a teaser is cut, a page is not), so
+    # the bar is lower than ingest.min_body_chars: short real articles exist
+    # (TOI 700 chars). Below this it is a cookie wall or paywall stub.
+    min_page_chars: 400
+    max_attempts: 2              # then classified headline-only
+    give_up_after_minutes: 60    # nothing waits longer than this for a body
+    # Answer 403 to any automated client, honest or browser-like (measured 2026-11-01).
+    unfetchable_domains:
+      - thediplomat.com
+      - scmp.com
+
+  # The LLM stage (M10b, D23): escalated articles that have a body.
+  explain:
+    enabled: true
+    model: llama3.2:3b
+    max_per_cycle: 40
+    # Measured: 4-5 s each (1,500 tokens in, ~200 out, ~55 tok/s, 100% GPU), but one
+    # call stalled 13 s. So the stage stops at a time budget; the rest wait.
+    max_seconds_per_cycle: 300
+    max_chars: 6000              # of the body sent to the model (~1,500 tokens)
+    timeout_s: 120
+
+  # Dashboard alert policy (D23, user choice 2026-11-01). Alert = severity High AND has
+  # a body AND not from an analysis outlet. Labels are stored as the model gave them;
+  # only the alert list is filtered. Analysis outlets publish features and opinion, not
+  # events - yet the GOLD labels call 42% of 19FortyFive articles High, so the model
+  # does too (22 of 29 bodied Highs on the first live cycle). Shown under "Analysis".
+  alerts:
+    require_body: true           # headline-only Highs are shown as "unconfirmed"
+    analysis_sources:
+      - 19fortyfive
+      - thediplomat
+
   # Publishers never stored. shop.ssbcrack.com re-posts ssbcrack.com's stories
   # under a shop banner with reworded headlines, so headline dedupe misses them.
   blocked_domains:
@@ -54,6 +91,14 @@ live:
     window: 1d                             # only the last day's results
     gate: true
     language: en
+    # Google News links hide the publisher URL; resolving one costs two requests to
+    # an undocumented Google endpoint, which rate-limits hard (~40 requests in two
+    # minutes earned a 429 on 2026-11-01). Hence a small, spaced budget.
+    decode:
+      enabled: true
+      max_per_cycle: 10
+      delay_s: 6
+      cooldown_minutes: 60       # after a 429; remembered across restarts
     queries:
       - Indian Army
       - Indian Navy

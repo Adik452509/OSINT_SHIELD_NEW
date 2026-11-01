@@ -1,5 +1,5 @@
 """Persistence for the live pipeline."""
 
-from .db import LiveStore, utc_now
+from .db import LiveStore, p_high, utc_now
 
-__all__ = ["LiveStore", "utc_now"]
+__all__ = ["LiveStore", "p_high", "utc_now"]
