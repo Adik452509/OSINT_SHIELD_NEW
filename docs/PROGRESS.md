@@ -5,6 +5,22 @@ Running log. Newest first. See [DECISIONS.md](DECISIONS.md) for the reasoning be
 
 ---
 
+## 2026-11-01 — M11 · Technical report ✅
+
+[`docs/REPORT.md`](REPORT.md) (GitHub) and `docs/report.pdf` (8 pages), written for technical
+readers: summary, data, model, results (baselines, every CV configuration with mean ± std,
+held-out with bootstrap CIs, error analysis, headline-only, propaganda, serving), the live system
+and its first hour, limitations, what would move the numbers, how to reproduce. Every number read
+from `runs/` or the decision log; figures drawn from the run files by
+`scripts/12_build_report.py` (matplotlib; PDF printed by headless Edge), extras `.[report]`.
+
+Found and fixed on the way: defence.in page text was always empty (trafilatura `deduplicate=True`,
+D23); the clean has-body-only severity score is 0.467 (0.478 was a pre-cleaning figure).
+
+**Remaining: deployment** (user's choice of option, after M11).
+
+---
+
 ## 2026-11-01 — M10d · Dashboard → D25
 
 `dashboard/` — the old OSNIT React dashboard (Vite, axios, recharts), rewired to `/live`. Tabs:

@@ -14,11 +14,12 @@ only; nothing is copied from it wholesale.
 
 ## Status
 
-M0–M10 complete: data pipeline, baselines, a fine-tuned mmBERT-small (held-out results in
-[docs/FINAL_RESULTS.md](docs/FINAL_RESULTS.md)), the inference API, and the live system — news
-collection, article text, classification, Llama explanations and a React dashboard. Remaining:
-M11, the write-up. See [docs/PROGRESS.md](docs/PROGRESS.md) for what is done,
-[docs/DECISIONS.md](docs/DECISIONS.md) for why, and [docs/ROADMAP.md](docs/ROADMAP.md).
+**Complete (M0–M11).** Start with the **[technical report](docs/REPORT.md)**
+([PDF](docs/report.pdf)): a fine-tuned mmBERT-small matches TF-IDF on held-out data — label
+quality, not the model, is the ceiling — and runs live: news collection, article text,
+classification, Llama explanations with verified quotes, and a React dashboard.
+[docs/PROGRESS.md](docs/PROGRESS.md) has what was done, [docs/DECISIONS.md](docs/DECISIONS.md)
+why (D1–D25), and [docs/ROADMAP.md](docs/ROADMAP.md) the milestones.
 
 ## Run the live system
 
