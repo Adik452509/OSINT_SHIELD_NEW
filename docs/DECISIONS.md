@@ -776,9 +776,72 @@ makes `model_version` meaningful. Training needed bf16 for memory; inference doe
 Single calls got *faster* in fp32 — on small inputs the autocast conversion costs more than it
 saves. Batched throughput is ~35% over the plan's ~20 ms; at ~300 articles/day that is ~8 seconds
 of compute. The write-up reports 26.8 ms and the reason, rather than claiming the target.
-- **Review sheet (~100)** = the 7 originals + rubric hits with low-precision terms removed (17)
-  + the strongest Llama flags + a **random sample of unflagged articles** (to estimate how many
-  positives the screen misses).
-- **Blind review.** Rows are shuffled; the reviewer sees text only — not the source bucket, not
-  Llama's answer, not the original label. The key is kept in a separate file.
-- Positives that emerge are a new label set (`propaganda_v2`); the original column is kept.
+
+---
+
+## D22 · Live ingestion: sources, relevance gate, what counts as a body — 2026-11-01
+
+**User decisions (M10).** Sources: the publishers the gold corpus came from + Google News keyword
+searches (free, no API key). Poll every **15 minutes**. Dashboard: **adapt the old React
+dashboard** to the new labels. Llama explains **escalated articles only**.
+
+**1. Sources follow the training distribution.** 489 of 1,064 gold articles came via Google News;
+the rest mostly from Indian Express, HT, The Hindu, India Today, defence.in, Livemint, The
+Diplomat, 19FortyFive, Naval News. 12 publisher feeds + 10 Google News queries, all checked
+reachable (`configs/live.yaml`). Dropped: militaryspot (timeout), Amar Ujala (refuses), PIB (Hindi
+feed), an empty Indian Express tag feed. Publisher feeds are polled first so the first copy of a
+story is the one with the most text.
+
+**2. A relevance gate in front of the classifier.** The model has no "not defence news" class;
+general outlets are mostly out of scope (job fairs, fuel prices, train timetables), and the model
+would force each into Security, Political, … Terms = `data/resources/relevance.yaml` + rubric
+terms (low-precision ones excluded).
+
+| gate | gold recall (n=1,064) | bodied | headline-only |
+|---|---|---|---|
+| rubric only, any hit | 71.0% | 89.7% | 49.0% |
+| rubric + relevance list, any hit | 99.7% (3 misses) | 99.7% | 99.8% |
+| same, headline + first 600 chars only | 94.5% | 90.1% | 99.8% |
+
+So the gate reads **all** the text a feed gives. Acronyms are matched case-sensitively ("LAC" ≠
+"lac", lakh). Specialist defence outlets bypass the gate ("Belgium transfers minehunter" names
+no listed word).
+
+**Tightened after the first live pass (user choice, 2026-11-01).** "Any single hit" admitted
+469 of 974 new items, and a random 15 of them included ~4–5 that were not defence news: a Durga
+Puja feature and a US Congress race (rubric term "cultural"), Mbappé's apology to China (one
+"borders" in the text), "BJP veteran loses". Rules compared on the gold corpus and the 907
+gated live items:
+
+| rule | gold recall | rare classes (Civ/Inv/Oth) | live admitted |
+|---|---|---|---|
+| any hit | 99.7% | 98.8% | 401 |
+| relevance list only | 99.4% | 97.6% | 349 |
+| **term in headline, or ≥ 2 distinct terms in text; "veteran" removed** | **99.2%** (9 misses) | **96.5%** | **357** |
+| same, without rubric terms | 97.5% | 89.4% | 318 |
+
+Reading the 40 items the chosen rule drops: ~34 are not defence news (Mongolia's UNSC bid,
+K-dramas, a colon-cancer study, a Bihar vote count, TRAI), ~6 are real security stories lost
+(limpet mines on a Hormuz tanker, North Korean loudspeakers, Red Sea shipping threats). The
+strictest rule also dropped a Singapore–India naval exercise and was rejected.
+
+**Accepted limitation.** A keyword gate is imprecise: even after tightening, roughly a quarter of
+admitted items are probably out of scope (estimated by eye, no live labels). Mitigation: the
+review queue gets a **"not defence news"** action (M10c); those clicks are labelled negatives
+for a learned relevance filter later. **Caveat:** the gold corpus was itself keyword-collected,
+so gold recall is an upper bound on live recall.
+
+**3. A body is ≥ 1,000 characters.** Routing treats headline-only and bodied articles differently
+(D17), so a teaser must not pass as a body. SCMP truncates feed text at ~500 characters; gold
+bodies have median 3,618 chars and only 2.6% fall under 1,000. Only Naval News and 19FortyFive
+carry full text in the feed; everything else gets its page fetched (M10b).
+
+**4. Dedupe = URL hash + normalised headline** (M2's normaliser, which strips a " - Publisher"
+tail so a Google News title matches the publisher's own). If the stored copy is headline-only and
+a later copy brings the body, the body is attached to the stored article. Near-duplicates (other
+outlets' rewrites) are kept: they are separate reports, and the M2 similarity method is
+corpus-relative. Headlines under 4 words are not deduped on ("Live updates").
+`shop.ssbcrack.com` is blocked: it re-posts ssbcrack.com's stories under reworded headlines.
+
+**5. Every item is stored, relevant or not**, so a story rejected at 10:00 is not re-judged at
+10:15, and the gate can be audited later.

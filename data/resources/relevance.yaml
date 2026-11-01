@@ -1,0 +1,196 @@
+# Relevance gate for live ingestion (M10a, D22).
+#
+# General news feeds (The Hindu, HT, TOI ...) mostly carry stories the model was
+# never trained on - fuel prices, train timetables, elections. The classifier has
+# no "not defence news" class, so it would force every one of them into Security,
+# Political, ... Only articles that pass this gate are classified.
+#
+# Terms = this file + the rubric terms in keywords.yaml (low-precision ones
+# excluded), word-boundary matched. An article passes when a term is in the
+# HEADLINE, or 2+ DIFFERENT terms are in the text (ingestion/relevance.py).
+#
+# The rubric alone is not enough: any-hit on it keeps only 71% of the 1,064 gold
+# articles (51% of headline-only ones) - it was written to tell defence stories
+# APART, not to recognise defence news. Gold recall with this file and the
+# headline-or-2 rule: see D22 (99.2%; 99.7% for any single hit, which also let
+# in Durga Puja and Mbappe stories on the first live pass). Measured on full
+# text; gating on the headline + first 600 characters drops bodied recall to
+# 90%, so the gate reads all the text the feed provides.
+#
+# Caveat: the gold corpus was itself collected by keyword search, so recall on
+# it is an upper bound on live recall.
+#
+# Removed after the first live pass: veteran/veterans ("BJP veteran loses").
+#
+# Words are deliberately broad (police, killed, arrested): the corpus includes
+# crime, unrest and disaster-response stories under Civilian and Investigation.
+
+# Matched case-INsensitively. List plurals explicitly - there is no stemming.
+terms:
+  # forces and people
+  - army
+  - armies
+  - armed forces
+  - navy
+  - naval
+  - air force
+  - military
+  - militaries
+  - defence
+  - defense
+  - troops
+  - soldier
+  - soldiers
+  - jawan
+  - jawans
+  - servicemen
+  - Assam Rifles
+  - paramilitary
+  - security forces
+  - security personnel
+  - coast guard
+  - police
+  - policemen
+  - cop
+  - cops
+  - commando
+  - commandos
+  - sniper
+  - regiment
+  - battalion
+  - brigade
+  - Agniveer
+  - Agnipath
+  - Chief of Defence Staff
+  - Rajnath
+  # threats and actors
+  - terror
+  - terrorist
+  - terrorists
+  - terrorism
+  - militant
+  - militants
+  - militancy
+  - insurgent
+  - insurgents
+  - insurgency
+  - Maoist
+  - Maoists
+  - Naxal
+  - Naxals
+  - Naxalite
+  - Naxalites
+  - jihadi
+  - jihadist
+  - extremist
+  - extremists
+  - radicalised
+  - radicalized
+  - Lashkar
+  - Jaish
+  - Hizbul
+  - Khalistan
+  - Khalistani
+  - espionage
+  - spy
+  - spies
+  - smuggling
+  - smuggler
+  - smugglers
+  - infiltration
+  - infiltrator
+  - infiltrators
+  - intrusion
+  - cross-border
+  - hostage
+  - abducted
+  - kidnapped
+  # equipment
+  - missile
+  - missiles
+  - drone
+  - drones
+  - fighter jet
+  - fighter jets
+  - fighter
+  - fighters
+  - aircraft
+  - aircraft carrier
+  - warship
+  - warships
+  - submarine
+  - submarines
+  - frigate
+  - destroyer
+  - minehunter
+  - Rafale
+  - Tejas
+  - Sukhoi
+  - rifle
+  - rifles
+  - weapon
+  - weapons
+  - arms
+  - ammunition
+  - explosive
+  - explosives
+  - grenade
+  - grenades
+  - bomb
+  - bombs
+  - nuclear
+  # events
+  - blast
+  - blasts
+  - airstrike
+  - airstrikes
+  - strike
+  - strikes
+  - attack
+  - attacks
+  - ceasefire
+  - border
+  - borders
+  - war
+  - wars
+  - warfare
+  - combat
+  - clash
+  - clashes
+  - firing
+  - shelling
+  - gunfight
+  - encounter
+  - killed
+  - injured
+  - arrested
+  - detained
+  - riot
+  - riots
+  - violence
+  - violent
+  - mob
+  - intelligence
+
+# Matched case-SENSITIVELY. Short acronyms that are ordinary words in lower case:
+# "LAC" vs "lac" (lakh), "HAL" vs "hal", "INS" vs "ins".
+acronyms:
+  - IAF
+  - CRPF
+  - BSF
+  - CISF
+  - ITBP
+  - SSB
+  - NSG
+  - LoC
+  - LAC
+  - LeT
+  - JeM
+  - ISIS
+  - IED
+  - IEDs
+  - DRDO
+  - HAL
+  - NIA
+  - CDS
+  - INS

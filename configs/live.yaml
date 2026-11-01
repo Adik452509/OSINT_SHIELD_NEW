@@ -1,0 +1,67 @@
+# Live pipeline (M10). Inherits the model and routing settings from serve.yaml.
+extends: serve.yaml
+
+live:
+  db_path: data/live/osint_live.db        # gitignored
+  poll_minutes: 15                         # your choice (M10 decisions)
+
+  http:
+    timeout_s: 20
+    # Identifies us honestly; sites that refuse it show up as errors in the run table.
+    user_agent: "Mozilla/5.0 (compatible; OSINT-Shield/0.1; research prototype)"
+
+  ingest:
+    # Feed text shorter than this is a teaser, not a body: routing treats
+    # headline-only and bodied articles differently (D17), so a teaser must not
+    # pass as one. SCMP cuts its feed text at ~500 characters; real bodies are far
+    # longer (gold: median 3,618 chars, only 2.6% under 1,000). Shorter text gets
+    # its page fetched instead (M10b).
+    min_body_chars: 1000
+    max_items_per_source: 200
+
+  # Publishers never stored. shop.ssbcrack.com re-posts ssbcrack.com's stories
+  # under a shop banner with reworded headlines, so headline dedupe misses them.
+  blocked_domains:
+    - shop.ssbcrack.com
+
+  # Polled in this order; the first copy of a story wins, so publisher feeds come
+  # before Google News. All checked reachable on 2026-11-01.
+  # gate: false = specialist defence outlet, every item in scope.
+  # [full text] = the feed carries the whole article (measured 2026-11-01); the
+  # rest give a teaser or nothing, and their pages are fetched in M10b.
+  sources:
+    # --- specialist defence outlets (gold corpus: defence.in 37, 19fortyfive 24, navalnews 16)
+    - {name: defence_in,        url: "https://defence.in/forums/-/index.rss",  gate: false}   # ~190-char teaser
+    - {name: navalnews,         url: "https://www.navalnews.com/feed/",        gate: false}   # [full text]
+    - {name: 19fortyfive,       url: "https://www.19fortyfive.com/feed/",      gate: false}   # [full text]
+    # --- general outlets in the gold corpus, gated
+    - {name: indianexpress,     url: "https://indianexpress.com/section/india/feed/"}        # headline only
+    - {name: thehindu,          url: "https://www.thehindu.com/news/national/feeder/default.rss"}
+    - {name: hindustantimes,    url: "https://www.hindustantimes.com/feeds/rss/india-news/rssfeed.xml"}
+    - {name: indiatoday,        url: "https://www.indiatoday.in/rss/1206514"}
+    - {name: timesofindia,      url: "https://timesofindia.indiatimes.com/rssfeeds/-2128936835.cms"}
+    - {name: livemint,          url: "https://www.livemint.com/rss/news"}
+    - {name: businessline,      url: "https://www.thehindubusinessline.com/news/feeder/default.rss"}
+    - {name: thediplomat,       url: "https://thediplomat.com/feed/"}
+    - {name: scmp,              url: "https://www.scmp.com/rss/4/feed"}
+    # Tried and left out: militaryspot (times out), amarujala (refuses
+    # connections), PIB defence (served Hindi), Indian Express army tag (empty).
+
+  google_news:
+    enabled: true
+    # 489 of 1,064 gold articles came through Google News - the largest single route.
+    params: {hl: en-IN, gl: IN, ceid: "IN:en"}
+    window: 1d                             # only the last day's results
+    gate: true
+    language: en
+    queries:
+      - Indian Army
+      - Indian Navy
+      - Indian Air Force
+      - terror attack India
+      - ceasefire violation LoC
+      - infiltration border India
+      - Maoist encounter
+      - DRDO missile test
+      - BSF border
+      - NIA arrest

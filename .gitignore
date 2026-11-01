@@ -12,6 +12,8 @@ data/processed/*
 !data/processed/.gitkeep
 data/external/*
 !data/external/.gitkeep
+data/live/*
+!data/live/.gitkeep
 # data/resources/ IS committed - small, versioned rubric files
 
 # ---- experiment output ----

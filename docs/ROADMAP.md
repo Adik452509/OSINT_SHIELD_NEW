@@ -165,9 +165,19 @@ mean macro-F1 *and* its spread, not mean alone.
 
 **Files** `src/osint_shield/llm/`, `src/osint_shield/ingestion/`, `src/osint_shield/storage/`
 **Depends on** M9, `ollama pull llama3.2:3b`
-**Verify** escalation routes ~25% of traffic; LLM output validates against the fixed JSON schema;
+**Verify** escalation rate reported against D21's development estimate (~59%; the plan's ~25%
+assumed the all-articles High rate); LLM output validates against the fixed JSON schema;
 evidence spans are verbatim from the source; review queue captures low-confidence predictions;
 ingestion dedupes by URL hash *and* normalised headline.
+
+Split in four, one stop each (decisions: D22):
+
+| part | what | verify |
+|---|---|---|
+| **M10a** ✅ code | sources → parse → dedupe → relevance gate → SQLite (`scripts/11_live.py ingest`) | second pass stores nothing new; gate judged by eye |
+| M10b | fetch bodies (publisher pages, Google News links) → classify → Llama explain → 15-min loop | records match the M9 contract; evidence verbatim; GPU fits encoder + Llama + display |
+| M10c | dashboard API: articles, summary, trend, alerts, review corrections (incl. **"not defence news"** → labelled negatives for a future learned gate, D22), operations | tests via TestClient |
+| M10d | adapt `osnit-dashboard` (React) to narrative / severity / P(High) / review queue | runs against the live API |
 
 ---
 

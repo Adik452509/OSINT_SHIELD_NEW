@@ -17,6 +17,7 @@ DATA = ROOT / "data"
 DATA_RAW = DATA / "raw"
 DATA_PROCESSED = DATA / "processed"
 DATA_EXTERNAL = DATA / "external"
+DATA_LIVE = DATA / "live"
 RESOURCES = DATA / "resources"
 DOCS = ROOT / "docs"
 SCRIPTS = ROOT / "scripts"
@@ -27,8 +28,9 @@ GOLD_CSV = DATA_RAW / "gold_dataset.csv"
 TEST_CSV = DATA_RAW / "test.csv"
 KEYWORDS_YAML = RESOURCES / "keywords.yaml"
 TAXONOMY_YAML = RESOURCES / "taxonomy.yaml"
+RELEVANCE_YAML = RESOURCES / "relevance.yaml"
 
-_WRITABLE = (DATA_PROCESSED, DATA_EXTERNAL, RUNS, CACHE)
+_WRITABLE = (DATA_PROCESSED, DATA_EXTERNAL, DATA_LIVE, RUNS, CACHE)
 
 
 def ensure_dirs() -> None:

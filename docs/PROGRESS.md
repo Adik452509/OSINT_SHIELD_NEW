@@ -5,6 +5,31 @@ Running log. Newest first. See [DECISIONS.md](DECISIONS.md) for the reasoning be
 
 ---
 
+## 2026-11-01 — M10a · Live ingestion → D22
+
+User decisions: publisher feeds + Google News, poll every 15 min, adapt the old React dashboard,
+Llama explains escalated articles only. M10 split into **a** ingest → **b** fetch body + classify
++ explain + scheduler → **c** dashboard API → **d** dashboard.
+
+| piece | file | rule it carries |
+|---|---|---|
+| sources | `configs/live.yaml`, `ingestion/sources.py` | 12 publisher feeds, then 10 Google News queries (`when:1d`) |
+| feed parsing | `ingestion/feeds.py` | HTML → text; teaser ≠ body (< 1,000 chars); HTML error page = error, not "0 items" |
+| dedupe keys | `ingestion/urls.py` | canonical URL hash + normalised headline (≥ 4 words) |
+| relevance gate | `ingestion/relevance.py`, `data/resources/relevance.yaml` | term in headline or ≥ 2 distinct in text; 99.2% gold recall (rubric alone 71%) |
+| one polling pass | `ingestion/ingest.py` | blocked domains; body upgrade on dedupe; failing source reported, never fatal |
+| store | `storage/db.py` | SQLite, WAL; tables for M10b–c created now (schema v1) |
+| script | `scripts/11_live.py` | `ingest`, `stats`, `sample` |
+
+User's first pass: 22 sources, 1,029 items, 974 new, 469 relevant, 0 failed; second pass 3 new
+(dedupe ✅). `sample` showed ~4–5 of 15 admitted items out of scope → gate tightened to
+"headline hit or ≥ 2 distinct terms" (user choice; live admitted 401 → 357 of 907 gated items,
+gold recall 99.7% → 99.2%) + a "not defence news" review action planned for M10c. Tests: 276.
+
+**Next:** user rebuilds the live DB under the new rule and re-checks `sample`. Then M10b.
+
+---
+
 ## 2026-10-05 — M7 · Final model + held-out evaluation ✅
 
 ### Done
