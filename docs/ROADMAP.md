@@ -176,8 +176,8 @@ Split in four, one stop each (decisions: D22):
 |---|---|---|
 | **M10a** ✅ | sources → parse → dedupe → relevance gate → SQLite (`scripts/11_live.py ingest`) | second pass stores nothing new; gate judged by eye |
 | **M10b** ✅ | fetch bodies (publisher pages, Google News links) → classify → Llama explain → 15-min loop (D23) | records match the M9 contract; evidence verbatim; GPU fits encoder + Llama + display |
-| **M10c** ✅ code | dashboard API (D24): articles, summary, trend, alerts, review corrections (incl. **"not defence news"** → labelled negatives for a future learned gate, D22), operations | tests via TestClient |
-| M10d | adapt `osnit-dashboard` (React) to narrative / severity / P(High) / review queue | runs against the live API |
+| **M10c** ✅ | dashboard API (D24): articles, summary, trend, alerts, review corrections (incl. **"not defence news"** → labelled negatives for a future learned gate, D22), operations | tests via TestClient |
+| **M10d** ✅ code | adapt `osnit-dashboard` (React) to narrative / severity / P(High) / review queue (D25) | runs against the live API |
 
 ---
 

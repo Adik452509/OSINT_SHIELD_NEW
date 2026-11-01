@@ -5,6 +5,18 @@ Running log. Newest first. See [DECISIONS.md](DECISIONS.md) for the reasoning be
 
 ---
 
+## 2026-11-01 — M10d · Dashboard → D25
+
+`dashboard/` — the old OSNIT React dashboard (Vite, axios, recharts), rewired to `/live`. Tabs:
+Overview, Alerts, Analysis, Review, Explorer, Operations. Location features removed (no location
+data); LLM summaries with verified quotes, the review form and Run-now added. Lint clean, build
+passes, 39 components rendered against real API responses. User's first "not defence news"
+review (the NASA telescope) is in the database. README updated: how to run the live system.
+
+**Next:** user runs `npm install` + `npm run dev`, tries every tab. Then M11 (write-up).
+
+---
+
 ## 2026-11-01 — M10c · Dashboard API → D24
 
 | piece | file | rule it carries |

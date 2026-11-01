@@ -900,6 +900,11 @@ over-confidence. They are flagged for review and not explained.
 **28 invented quotes dropped** (~1 in 4 returned) — the verification is not optional. Google
 decoding answered 429 again on its first request (still blocked from testing).
 
+**Bug found on the dashboard (fixed).** Every defence.in page failed with "too short (0 chars)"
+— 18 articles classified headline-only. Cause: `deduplicate=True` in the trafilatura call, added
+in the pipeline but absent from the earlier measurement; on defence.in's forum pages it removed
+the entire article (3,694 → 0 chars). Removed.
+
 **What "High" means in this corpus — and the alert policy.** Of 38 High labels: 9 headline-only,
 all The Diplomat; of the 29 bodied, **22 are 19FortyFive** feature and history pieces ("Patton's
 best Army line", "F-16N summed up in 1 word"), while real incidents ("3 killed in gunfight in
@@ -943,3 +948,27 @@ source but matched by domain, so the same outlet arriving through Google News is
 killed in the West Asia conflict, a family shooting, the Andhra chainsaw attack (and the NASA
 telescope, a model error); analysis 69; review queue 114. Before the policy, the High list was
 dominated by 19FortyFive features. Responses 8–100 ms.
+
+---
+
+## D25 · Dashboard: the old look, only real data — 2026-11-01
+
+**User decision (M10):** adapt the old React dashboard rather than build a plain page. Kept: the
+dark theme, metric cards, the boxes row, report cards, filters, charts, the operations panel and
+its log. Rewired to the real labels: High/Low with the model's P(High) instead of
+critical/high/medium/low "risk %", narratives instead of incident types, and the four alert-policy
+categories (alerts, unconfirmed, analysis, to-review) in place of the risk-level boxes.
+
+**Removed, because nothing real would fill them:** country and state filters, the
+border-countries panel, risk scores by state, and the map. The pipeline extracts no locations;
+the old dashboard's state list was hard-coded and its filter matched state names in free text.
+
+**Added:** the LLM summary with its verified quotes (labelled as LLM output, with whether the
+quotes were verified), the review form (confirm / correct / not defence news) on every card and
+pre-opened in the Review tab, the article text on demand, and Run-now. Every severity badge
+carries the D23 caveat as a tooltip; the Overview states it in words.
+
+**Behaviour:** summary and lists refresh every 60 s; a refresh replaces data in place, so a review
+form being filled in survives it. The 800-line single component was split into small files
+(`dashboard/README.md`). Checked: lint clean, production build, and 39 components rendered
+server-side against real API responses without a runtime error.

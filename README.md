@@ -14,9 +14,27 @@ only; nothing is copied from it wholesale.
 
 ## Status
 
-Phase 2 complete — project scaffold, config system, label taxonomy and keyword rubric are in place
-and tested. No training code yet. See [docs/PROGRESS.md](docs/PROGRESS.md) for what is done and
-[docs/ROADMAP.md](docs/ROADMAP.md) for the milestone plan.
+M0–M10 complete: data pipeline, baselines, a fine-tuned mmBERT-small (held-out results in
+[docs/FINAL_RESULTS.md](docs/FINAL_RESULTS.md)), the inference API, and the live system — news
+collection, article text, classification, Llama explanations and a React dashboard. Remaining:
+M11, the write-up. See [docs/PROGRESS.md](docs/PROGRESS.md) for what is done,
+[docs/DECISIONS.md](docs/DECISIONS.md) for why, and [docs/ROADMAP.md](docs/ROADMAP.md).
+
+## Run the live system
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[serve,ingest,llm]"
+python scripts/10_serve.py --start      # API + collection every 15 min → http://127.0.0.1:8000/docs
+
+# second window
+cd dashboard
+npm install                              # first time only
+npm run dev                              # dashboard → http://localhost:5173
+```
+
+Needs Ollama running with `llama3.2:3b`. Command-line alternatives: `python scripts/11_live.py
+run --once | stats | show --high`. Details: [dashboard/README.md](dashboard/README.md).
 
 ---
 
@@ -81,11 +99,8 @@ ollama pull llama3.2:3b
 ollama list
 ```
 
-> Ollama 0.34.2 is installed and running on this machine, but **`llama3.2` is not pulled yet** —
-> only `qwen2.5-coder:7b`. The plan assumed the Llama install from the annotation phase was
-> already here; it is not.
-
-Do not run the LLM stage during training — 6 GB of VRAM will not hold both.
+Do not run the live system during training — 6 GB of VRAM will not hold both. The live system
+itself fits: classifier + Llama + the display use ~4.3 GB (D23).
 
 ---
 
@@ -96,14 +111,19 @@ configs/            base.yaml + one file per model candidate (single-level `exte
 data/
   raw/              corpus CSVs            (gitignored)
   processed/        dedupe groups, folds   (gitignored)
-  resources/        keywords.yaml, taxonomy.yaml   (committed - small, versioned)
-docs/               PROGRESS, DECISIONS, ANALYSIS, ROADMAP + reference PDFs
+  live/             the live SQLite database (gitignored)
+  resources/        keywords.yaml, taxonomy.yaml, relevance.yaml   (committed - small, versioned)
+dashboard/          React (Vite) dashboard for the live system
+docs/               PROGRESS, DECISIONS, ANALYSIS, ROADMAP, FINAL_RESULTS + reference PDFs
 scripts/            numbered, runnable, one per milestone
 src/osint_shield/
   config.py         YAML loading with inheritance; label maps
   paths.py          canonical paths resolved from repo root
   keywords/         rubric matching, fusion features, mining
-  data/ models/ training/ evaluation/ inference/ llm/ ingestion/ api/ storage/
+  data/ models/ training/ evaluation/   corpus, model, CV, metrics
+  inference/        prediction, routing, calibration (M9)
+  ingestion/ live/ storage/ llm/        the live pipeline (M10)
+  api/              FastAPI: /classify and the /live dashboard API
 tests/              pytest
 runs/               experiment output     (gitignored)
 ```

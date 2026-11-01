@@ -58,11 +58,15 @@ def matches_headline(headline: str, page_title: str, text: str, *,
 
 
 def extract_article(html: str, url: str | None = None) -> str:
-    """Main article text of an HTML page; empty when none is found."""
+    """Main article text of an HTML page; empty when none is found.
+
+    No ``deduplicate=True``: on defence.in's forum pages it removed the whole
+    article (3,694 chars -> 0), so every defence.in page failed live (D23).
+    """
     import trafilatura
 
     text = trafilatura.extract(html, url=url, include_comments=False, include_tables=False,
-                               favor_precision=True, deduplicate=True)
+                               favor_precision=True)
     return (text or "").strip()
 
 
